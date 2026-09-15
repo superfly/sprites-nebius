@@ -47,7 +47,9 @@ class Client:
         if payload is not None:
             data = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
-            headers["Accept"] = "text/event-stream"
+            # The gateway's JSON-only Accept negotiation precedes proxying.
+            # Still request streaming in the body and require SSE in the response.
+            headers["Accept"] = "text/event-stream, application/json"
         request = Request(url, data=data, headers=headers, method=method)
         try:
             return self.opener.open(request, timeout=self.timeout)

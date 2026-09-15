@@ -276,6 +276,20 @@ class SafetyTests(unittest.TestCase):
         self.assertIsNone(verify.NoRedirect().redirect_request(None, None, 302, "", {},
                                                               "https://evil.test"))
 
+    def test_inference_accepts_gateway_json_negotiation_but_requires_sse(self):
+        client = verify.Client()
+        with patch.object(client.opener, "open", return_value=Response()) as opener:
+            with client.request(BASE + "/chat/completions", method="POST",
+                                bearer=verify.PLACEHOLDER,
+                                payload={"stream": True, "max_tokens": 256}) as response:
+                request = opener.call_args.args[0]
+                self.assertEqual(request.get_header("Accept"),
+                                 "text/event-stream, application/json")
+                self.assertEqual(request.get_header("Content-type"), "application/json")
+                self.assertTrue(json.loads(request.data)["stream"])
+                with self.assertRaisesRegex(verify.ProbeError, "Expected text/event-stream"):
+                    verify.inspect_stream(response, "chat")
+
     def test_client_does_not_inherit_environment_credentials(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "not-for-the-client",
                                        "NEBIUS_API_KEY": "also-not-for-the-client"}):
@@ -319,6 +333,17 @@ class SafetyTests(unittest.TestCase):
 
 
 class LoopbackHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # Reproduce the gateway's JSON Accept requirement before serving SSE.
+        if "application/json" not in self.headers.get("Accept", ""):
+            self.send_response(406)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.server.payloads.append(json.loads(self.rfile.read(
+            int(self.headers.get("Content-Length", "0")))))
+        self.do_GET()
+
     def do_GET(self):
         self.server.paths.append(self.path)
         if self.path == "/redirect":
@@ -346,6 +371,7 @@ class LoopbackTests(unittest.TestCase):
     def setUp(self):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), LoopbackHandler)
         self.server.paths = []
+        self.server.payloads = []
         self.thread = threading.Thread(target=self.server.serve_forever,
                                        kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
@@ -366,6 +392,14 @@ class LoopbackTests(unittest.TestCase):
         with verify.Client().request(self.url + "/redirect") as response:
             self.assertEqual(response.status, 302)
         self.assertEqual(self.server.paths, ["/redirect"])
+
+    def test_real_stream_post_passes_gateway_accept_negotiation(self):
+        payload = {"stream": True, "max_tokens": 256}
+        with verify.Client().request(self.url + "/stream", method="POST",
+                                     payload=payload) as response:
+            result = verify.inspect_stream(response, "chat")
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(self.server.payloads, [payload])
 
 
 if __name__ == "__main__":

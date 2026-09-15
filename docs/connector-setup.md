@@ -78,6 +78,15 @@ text. Increase only after checking model pricing and obtaining spend approval.
 Responses requests use `store: false`; the harness does not request tools or
 execute generated code. Upstream retention remains subject to Nebius policy.
 
+The request advertises `Accept: text/event-stream, application/json` because
+the Sprites gateway currently requires JSON-compatible content negotiation
+before proxying. An SSE-only Accept header returns HTTP 406 even for a GET of
+`/models`. Streaming is still requested with `stream: true`, and a JSON response
+does **not** pass the inference probe: it still requires `text/event-stream`
+and valid completion events. This header compatibility measure does not resolve
+or establish the absence of gateway buffering. Obtain fresh approval before
+retrying inference after a failed run.
+
 Results record counts, timing and numeric usage only, never model output,
 reasoning, raw errors or real keys. Successful SSE termination and nonempty text
 are required. A stream needs multiple text deltas spanning at least 50 ms to
