@@ -182,8 +182,16 @@ def _stop_owned(home, *, run):
         name = row["name"]
         run(["stop", name])
         row = matching_service(marker, services(run))
-        if row and runtime_status(row) != "stopped":
-            raise ServiceError("Service stop is unconfirmed; configuration has not been restored")
+        if row:
+            # The runtime's WaitForStop accepts stopped OR failed: SIGTERM
+            # can leave exit code 143 and status failed after a successful
+            # explicit stop. Stop also cancels automatic restart. Still reject
+            # running/transitional states or a remaining process identifier.
+            state = row.get("state", {})
+            if (runtime_status(row) not in ("stopped", "failed")
+                    or state.get("pid") not in (None, 0)
+                    or state.get("host_pid") not in (None, 0)):
+                raise ServiceError("Service stop is unconfirmed; configuration has not been restored")
         if row:
             run(["delete", name])
         if matching_service(marker, services(run)) is not None:

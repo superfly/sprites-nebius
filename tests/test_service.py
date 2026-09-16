@@ -87,6 +87,27 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue((self.state / "service-owned.json").exists())
         self.assertFalse(any(call[0] == "delete" for call in self.run.calls))
 
+    def test_explicit_stop_nonzero_exit_is_terminal(self):
+        service.start_owned(self.home, run=self.run)
+        def run(args):
+            result = self.run(args)
+            if args[0] == "stop":
+                self.run.rows[0]["state"] = {"status": "failed", "error": "exited with code 143"}
+            return result
+        self.assertTrue(service.stop_owned(self.home, run=run))
+        self.assertEqual(self.run.rows, [])
+
+    def test_terminal_label_with_live_pid_is_not_confirmed(self):
+        service.start_owned(self.home, run=self.run)
+        def run(args):
+            result = self.run(args)
+            if args[0] == "stop":
+                self.run.rows[0]["state"] = {"status": "failed", "pid": 123}
+            return result
+        with self.assertRaises(service.ServiceError):
+            service.stop_owned(self.home, run=run)
+        self.assertFalse(any(call[0] == "delete" for call in self.run.calls))
+
     def test_unknown_create_result_is_not_retried(self):
         def uncertain(args):
             if args[0] == "create":
