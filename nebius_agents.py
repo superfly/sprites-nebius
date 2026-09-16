@@ -225,6 +225,43 @@ def exact_ok(agent, raw):
         raise AgentError("Unrecognized agent output or attempted tool use; output omitted") from None
 
 
+def output_metadata(agent, raw):
+    """Keep schema diagnostics, never prompts, completions, IDs or error text."""
+    if agent == "pi":
+        return {"bytes": len(raw), "exact_ok": raw.strip() == b"OK"}
+    result = {"events": [], "non_json_lines": 0}
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError
+        except (ValueError, UnicodeError):
+            result["non_json_lines"] += 1
+            continue
+        def kind(value):
+            return value if isinstance(value, str) and re.fullmatch(r"[a-z_.]{1,48}", value) else "unknown"
+        event = {"type": kind(row.get("type"))}
+        item = row.get("item")
+        if isinstance(item, dict):
+            event["item_type"] = kind(item.get("type"))
+            if item.get("type") == "agent_message":
+                event["exact_ok"] = item.get("text") == "OK"
+        # These diagnostics are fixed labels, not excerpts of CLI output.
+        message = row.get("message", "")
+        if isinstance(message, str):
+            if "metadata" in message.lower() and "model" in message.lower():
+                event["diagnostic"] = "model_metadata"
+            elif "deprecated" in message.lower():
+                event["diagnostic"] = "deprecation"
+        result["events"].append(event)
+        if len(result["events"]) == 100:
+            result["truncated"] = True
+            break
+    return result
+
+
 def git_revision():
     try:
         root = Path(__file__).resolve().parent
@@ -286,6 +323,7 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
                         raise AgentError("Installed agent version does not match the reviewed candidate pin")
                     row["verified_version"] = PINS[agent]
                     code, raw = run(command(agent, executable), cwd=work, env=env, timeout=args.timeout)
+                    row["output_metadata"] = output_metadata(agent, raw)
                     if code:
                         raise AgentError("Agent returned nonzero; output omitted and no retry")
                     passed = exact_ok(agent, raw)

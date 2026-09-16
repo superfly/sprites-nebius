@@ -55,6 +55,16 @@ class OutputTests(unittest.TestCase):
         self.assertFalse(agents.exact_ok("codex", lines([{"type": "item.completed", "item": {"type": "agent_message", "text": "OK"}}])))
         self.assertFalse(agents.exact_ok("opencode", lines([{"type": "text", "part": {"text": "OK"}}])))
 
+    def test_output_metadata_never_includes_content_or_credentials(self):
+        raw = lines([{"type": "warning", "message": "Model metadata missing PRIVATE"},
+                     {"type": "item.completed", "item": {"type": "agent_message", "text": "PRIVATE"}},
+                     {"type": "turn.completed", "usage": {"input_tokens": 123}}]) + b"PRIVATE\n"
+        report = agents.output_metadata("codex", raw)
+        self.assertNotIn("PRIVATE", json.dumps(report))
+        self.assertEqual(report["non_json_lines"], 1)
+        self.assertEqual(report["events"][0]["diagnostic"], "model_metadata")
+        self.assertFalse(report["events"][1]["exact_ok"])
+
     def test_native_commands_never_bypass_permissions(self):
         for name in ("codex", "opencode", "pi"):
             argv = agents.command(name, "/bin/" + name)
