@@ -1,0 +1,14 @@
+# Reference only: scripts/configure merges these fields into user-level config.
+# GATEWAY_BASE_URL and MODEL_ID are replaced after authenticated discovery.
+model = "MODEL_ID"
+model_provider = "nebius"
+
+[model_providers.nebius]
+name = "Nebius via Fly.io Sprites"
+base_url = "GATEWAY_BASE_URL"
+env_key = "SPRITES_NEBIUS_PLACEHOLDER"
+wire_api = "responses"
+requires_openai_auth = false
+request_max_retries = 0
+stream_max_retries = 0
+supports_websockets = false

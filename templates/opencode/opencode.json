@@ -1,0 +1,12 @@
+{
+  "model": "nebius/MODEL_ID",
+  "provider": {
+    "nebius": {
+      "options": {
+        "baseURL": "GATEWAY_BASE_URL",
+        "apiKey": "{env:SPRITES_NEBIUS_PLACEHOLDER}"
+      },
+      "models": {"MODEL_ID": {"name": "MODEL_ID"}}
+    }
+  }
+}

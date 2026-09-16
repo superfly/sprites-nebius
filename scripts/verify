@@ -4,6 +4,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+if sys.argv[1:2] == ["acceptance"]:
+    from nebius_acceptance import main
+    raise SystemExit(main(sys.argv[2:]))
+
 from nebius_verify import main
 
 raise SystemExit(main())

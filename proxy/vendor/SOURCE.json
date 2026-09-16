@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/fuergaosi233/claude-code-proxy",
+  "commit": "7ea4177a54a5ff7969a5f8ec76d9f80f2e0409e5",
+  "license": "MIT",
+  "files": {
+    "conversion.py": ["src/conversion/request_converter.py", "src/conversion/response_converter.py"]
+  },
+  "adaptation": "Minimal conversion subset rewritten around validated dictionaries. Preserves mixed user/tool-result content, corrects forced tool choice, rejects unsupported blocks and malformed tool JSON. Omits upstream environment loading, payload logging, model fallbacks, transport and HTTP routes. Streaming framing is implemented separately in proxy/server.py."
+}
