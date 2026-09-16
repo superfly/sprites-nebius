@@ -55,6 +55,21 @@ class OutputTests(unittest.TestCase):
         self.assertFalse(agents.exact_ok("codex", lines([{"type": "item.completed", "item": {"type": "agent_message", "text": "OK"}}])))
         self.assertFalse(agents.exact_ok("opencode", lines([{"type": "text", "part": {"text": "OK"}}])))
 
+    def test_codex_exact_pre_turn_catalog_notice_not_generation_error(self):
+        notice = {"type": "item.completed", "item": {"type": "error", "message":
+            "Model metadata for `Qwen/Qwen3-30B-A3B-Instruct-2507` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+        rows = [json.loads(line) for line in codex_answer().splitlines()]
+        rows.insert(1, notice)
+        self.assertTrue(agents.exact_ok("codex", lines(rows)))
+        self.assertEqual(agents.output_metadata("codex", lines(rows))["events"][1]["diagnostic"], "custom_model_fallback_metadata")
+        rows[1], rows[2] = rows[2], rows[1]
+        with self.assertRaises(agents.AgentError):
+            agents.exact_ok("codex", lines(rows))
+        rows[1], rows[2] = rows[2], rows[1]
+        notice["item"]["message"] = "Actual inference error"
+        with self.assertRaises(agents.AgentError):
+            agents.exact_ok("codex", lines(rows))
+
     def test_output_metadata_never_includes_content_or_credentials(self):
         raw = lines([{"type": "warning", "message": "Model metadata missing PRIVATE"},
                      {"type": "item.completed", "item": {"type": "agent_message", "text": "PRIVATE"}},

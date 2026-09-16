@@ -80,9 +80,23 @@ the pinned executable versions, uses fresh temporary agent homes, disables
 tools/plugins where the native CLI supports it, accepts only an exact `OK`,
 does not retry, and stops the batch after the first non-pass. A timeout is not a
 request or spend cap: a native agent may make more than one provider request.
-It deliberately reports Claude V8 as blocked even with the flag; editing and
-running agent-written code requires a separate disposable execution scope and
-verified confinement. Do not use permission-bypass flags as a substitute.
+Claude additionally requires explicit approval for a confined edit/test task:
+
+```sh
+.venv/bin/python scripts/verify-agents --agents claude --timeout 180 \
+  --approve-agent-runs --approve-claude-fixture
+```
+
+Run it only on the intended dedicated test Sprite, with the owned proxy healthy.
+It uses Claude's restricted mode, fresh home/work directories, only Read/Edit/Bash,
+and a fail-closed PreToolUse hook. The hook permits one arithmetic edit and a
+fixed test command; it rejects other paths, commands, symlinks, changed tests,
+and code outside the exact harmless arithmetic AST. It does not use blanket
+permission bypasses. The verifier requires successful edit/test tool results,
+stream events and an independent test rerun. Six agentic turns and a timeout
+bound execution but are not a strict provider-request or dollar cap. This
+fixture depends on the reviewed CLI and a trusted test Sprite; it is not a
+general-purpose sandbox for arbitrary agent-written programs.
 
 ## What configure owns
 

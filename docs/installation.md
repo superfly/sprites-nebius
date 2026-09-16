@@ -64,6 +64,18 @@ claude --version
 ```
 
 This changes `PATH` only in the current shell; it does not edit startup files.
+With npm 12's default script policy, installation can finish while leaving
+OpenCode and Claude as non-working placeholders. Review the pinned packages'
+`postinstall.mjs` and `install.cjs`, then explicitly run only their binary setup
+steps in the isolated prefix:
+
+```sh
+node "$HOME/.local/share/sprites-nebius-agents/lib/node_modules/opencode-ai/postinstall.mjs"
+node "$HOME/.local/share/sprites-nebius-agents/lib/node_modules/@anthropic-ai/claude-code/install.cjs"
+```
+
+Do not globally relax npm's script policy. Both steps were needed for these
+pins on the tested Sprite with npm 12.0.2; Codex and Pi worked without them.
 Record the actual reported versions. Ensure later shells and your acceptance
 runner resolve these same executables. Do not use unpinned `latest` updates
 during a controlled validation batch. This repository does not disable every

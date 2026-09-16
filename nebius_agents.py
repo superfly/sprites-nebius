@@ -2,8 +2,8 @@
 
 Native agents may issue multiple billable requests. A timeout, version pin, or
 one CLI invocation is NOT a spend/request cap. Obtain fresh batch approval.
-V8 is deliberately blocked until separately approved execution confinement is
-verified; this runner never bypasses agent permissions or runs generated code.
+Claude V8 additionally requires --approve-claude-fixture. Its restricted native
+tools and fail-closed hook permit only a fixed arithmetic edit/test fixture.
 
 Primary CLI references reviewed 2026-09-16:
 https://learn.chatgpt.com/docs/developer-commands?surface=cli
@@ -38,7 +38,7 @@ CHECKS = {"codex": "V5", "opencode": "V6", "pi": "V7", "claude": "V8"}
 PROMPT = "Reply with exactly: OK"
 MAX_OUTPUT = 2 * 1024 * 1024
 SPEND_WARNING = "Native agents may make multiple paid requests; request count and spend are not bounded by this runner. Fresh approval is required for each invocation; no automatic retries."
-V8_BLOCKER = "V8 requires separately approved disposable-Sprite tool execution and verified confinement. CLI allowedTools alone does not contain generated Python. No Claude command is launched."
+V8_BLOCKER = "V8 requires --approve-claude-fixture and approval for its fixed arithmetic edit/test task on the dedicated test Sprite."
 
 
 class AgentError(Exception):
@@ -154,7 +154,8 @@ def isolated_environment(root, executable, *, node=None):
             "OPENCODE_DISABLE_AUTOUPDATE": "true", "OPENCODE_DISABLE_MODELS_FETCH": "true",
             "OPENCODE_DISABLE_DEFAULT_PLUGINS": "true", "OPENCODE_DISABLE_LSP_DOWNLOAD": "true",
             "OPENCODE_DISABLE_CLAUDE_CODE": "true", "OPENCODE_AUTO_SHARE": "false",
-            "PI_OFFLINE": "1", "PI_TELEMETRY": "0"}
+            "PI_OFFLINE": "1", "PI_TELEMETRY": "0", "DISABLE_AUTOUPDATER": "1",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 
 
 def prepare(root, agent, gateway, model):
@@ -209,7 +210,18 @@ def exact_ok(agent, raw):
         if agent == "codex":
             if any(row.get("type") not in {"thread.started", "turn.started", "item.started", "item.updated", "item.completed", "turn.completed"} for row in rows):
                 raise ValueError
-            items = [row["item"] for row in rows if row.get("type", "").startswith("item.")]
+            # Codex 0.154 emits its custom-model catalog warning as an error
+            # item before the turn. Permit only this exact observed notice;
+            # real errors, warnings during execution and attempted tools fail.
+            started = False
+            filtered = []
+            for row in rows:
+                if row.get("type") == "turn.started":
+                    started = True
+                if not started and row.get("type") == "item.completed" and codex_metadata_notice(row.get("item")):
+                    continue
+                filtered.append(row)
+            items = [row["item"] for row in filtered if row.get("type", "").startswith("item.")]
             if any(not isinstance(item, dict) or item.get("type") not in {"reasoning", "agent_message"} for item in items):
                 raise ValueError
             answers = [row["item"].get("text") for row in rows if row.get("type") == "item.completed" and row["item"].get("type") == "agent_message"]
@@ -223,6 +235,14 @@ def exact_ok(agent, raw):
         raise ValueError
     except (UnicodeError, ValueError, TypeError, KeyError):
         raise AgentError("Unrecognized agent output or attempted tool use; output omitted") from None
+
+
+def codex_metadata_notice(item):
+    return (isinstance(item, dict) and item.get("type") == "error"
+            and isinstance(item.get("message"), str)
+            and re.fullmatch(r"Model metadata for `[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}` not found\. "
+                             r"Defaulting to fallback metadata; this can degrade performance and cause issues\.",
+                             item["message"]) is not None)
 
 
 def output_metadata(agent, raw):
@@ -246,6 +266,8 @@ def output_metadata(agent, raw):
         item = row.get("item")
         if isinstance(item, dict):
             event["item_type"] = kind(item.get("type"))
+            if codex_metadata_notice(item):
+                event["diagnostic"] = "custom_model_fallback_metadata"
             if item.get("type") == "agent_message":
                 event["exact_ok"] = item.get("text") == "OK"
         # These diagnostics are fixed labels, not excerpts of CLI output.
@@ -294,7 +316,8 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
     home = Path.home() if home is None else Path(home)
     environ = os.environ if environ is None else environ
     report.update(revision())
-    selected = tuple(a for a in agents if a != "claude")
+    approved_claude = getattr(args, "approve_claude_fixture", False)
+    selected = tuple(a for a in agents if a != "claude" or approved_claude)
     if selected:
         gateway, model = load_selection(home, selected)
         report["model"] = model
@@ -304,7 +327,7 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
     for agent in agents:
         row = {"check": CHECKS[agent], "agent": agent, "candidate_version": PINS[agent], "started_at": utcnow()}
         report["results"].append(row)
-        if agent == "claude":
+        if agent == "claude" and not approved_claude:
             row.update(status="blocked", reason=V8_BLOCKER)
         elif stopped:
             row.update(status="not_run", reason="Earlier agent did not pass; fresh approval required before retry")
@@ -322,14 +345,23 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
                     if code or versions != [PINS[agent].encode()]:
                         raise AgentError("Installed agent version does not match the reviewed candidate pin")
                     row["verified_version"] = PINS[agent]
-                    code, raw = run(command(agent, executable), cwd=work, env=env, timeout=args.timeout)
+                    if agent == "claude":
+                        import nebius_claude
+                        settings = nebius_claude.setup(root)
+                        argv = nebius_claude.command(executable, settings)
+                    else:
+                        argv = command(agent, executable)
+                    code, raw = run(argv, cwd=work, env=env, timeout=args.timeout)
                     row["output_metadata"] = output_metadata(agent, raw)
                     if code:
                         raise AgentError("Agent returned nonzero; output omitted and no retry")
-                    passed = exact_ok(agent, raw)
-                    row.update(status="pass" if passed else "fail", exact_ok=passed)
-                    if not passed:
-                        row["reason"] = "Final answer was not exactly OK; content omitted"
+                    if agent == "claude":
+                        row.update(nebius_claude.verify(work, raw, run, env))
+                    else:
+                        passed = exact_ok(agent, raw)
+                        row.update(status="pass" if passed else "fail", exact_ok=passed)
+                        if not passed:
+                            row["reason"] = "Final answer was not exactly OK; content omitted"
             except AgentError as error:
                 row.update(status="inconclusive", reason=str(error))
             except (ConfigureError, OSError):
@@ -343,6 +375,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agents", required=True, help="Explicit comma-separated selection")
     parser.add_argument("--approve-agent-runs", action="store_true", help=SPEND_WARNING)
+    parser.add_argument("--approve-claude-fixture", action="store_true", help="Also authorize the confined Claude arithmetic edit/test fixture")
     parser.add_argument("--timeout", type=int, default=120, help="Per native-agent invocation, 10..600 seconds; not a spend cap")
     args = parser.parse_args(argv)
     if not 10 <= args.timeout <= 600:
