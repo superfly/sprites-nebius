@@ -1,7 +1,8 @@
 # Local Claude Code adapter
 
-This is an **offline-tested spike**, not a completed S6/V8 live acceptance or
-security sign-off. It translates text/custom-tool Anthropic Messages requests
+This adapter passed a **confined live S6/V8 smoke test** on 16 September 2026,
+using Claude Code 2.1.273 and Qwen3-30B-A3B-Instruct-2507. That is not security
+sign-off or broad model compatibility. It translates text/custom-tool Messages requests
 to Chat Completions through the configured Sprites Nebius connector. It never
 accepts or installs a provider key.
 
@@ -74,6 +75,10 @@ zero. That per-request limit is not a session cost cap.
 - The proxy never executes tools. Claude performs the requested file edits and
   tests. Server-side web search, images/documents and Anthropic thinking blocks
   are explicitly rejected; disable Claude thinking for this initial spike.
+- Text-only mid-conversation system messages retain their system role and
+  position. `clear_at: next_user_message` is honored; dynamic tool changes and
+  per-message effort are rejected. This compatibility was required by the real
+  Claude Code request, and follows [Anthropic's documented semantics](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages).
 - Streaming upstream errors become an SSE `error` without `message_stop`; a
   client must not treat HTTP 200 alone as success. Invalid/truncated tool JSON
   does not become an empty tool invocation.
@@ -102,6 +107,8 @@ proxy/.venv/bin/python -m unittest discover -s tests -p 'test_proxy*.py' -v
 
 The dependency set was checked with `pip-audit 2.10.1` on 2026-09-16: no known
 vulnerabilities reported. This point-in-time advisory check is not proof of
-security; rerun it and the offline tests before release. S6 still needs an
-approved Sprite service run, compatible model selection and a real multi-turn
-Claude Code edit/test task. V8 and launch security review are not complete.
+security; rerun it and the offline tests before release. The live task used a
+managed Sprite service, real Edit/Bash tool round trips and streamed events;
+the verifier independently reran the unchanged test. Service replacement,
+idempotent startup and configuration restoration were also exercised. Launch
+security review and the other [release gates](../docs/status.md) remain open.

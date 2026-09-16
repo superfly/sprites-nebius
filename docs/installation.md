@@ -31,10 +31,10 @@ gateway probe can still run independently without those third-party packages.
 ## Exact candidate agent versions
 
 The official npm registry returned these versions on **16 September 2026**.
-They are reproducible **candidate pins**, not a certified compatibility matrix.
-None has completed this integration's V5–V8 acceptance through the live
-connector. Keep the tested version, model, and repository revision in each
-eventual acceptance record; an upgrade needs new verification.
+They are reproducible pins. All four passed the scoped V5–V8 live smoke checks
+on 16 September using Qwen3-30B-A3B-Instruct-2507; see [the evidence checklist](status.md).
+This is not certification of every workflow/model. Keep the tested version,
+model and repository revision in acceptance records; upgrades need new verification.
 
 | Agent command | Package and candidate pin | Registry metadata |
 | --- | --- | --- |

@@ -1,6 +1,7 @@
 # Configure agents inside a Sprite
 
-This is an offline-tested setup workflow, **not live four-agent certification**.
+This setup passed a four-agent live smoke test with one model and pinned CLI
+versions; it is **not broad model compatibility or release certification**.
 The five-minute path below assumes an existing authorized connector, a labeled
 Sprite, a reviewed checkout at its final path, its Python environment, and all
 selected agents already installed. It excludes administrative setup,
@@ -47,8 +48,8 @@ They read gateway discovery and the model list but do not send inference.
    environment. It exports only `SPRITES_NEBIUS_PLACEHOLDER`, refuses to replace
    another value, and never changes shell startup files. Do not substitute a
    real key. Discovery proves a model exists, not that it supports an agent's
-   reasoning, context limits, tools, or wire protocol. Currently the certified
-   agent/model matrix is empty.
+   reasoning, context limits, tools, or wire protocol. See the narrowly tested
+   agent/model matrix in [the checklist](status.md).
 
 3. If Claude was selected, start its owned loopback service **only after service
    creation is authorized**:

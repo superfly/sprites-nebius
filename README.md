@@ -3,9 +3,12 @@
 Run agents inside Fly.io Sprites with Nebius inference credentials held by a
 Sprites Custom API Connector, not inside the sandbox.
 
-**Status: locally implemented setup and adapter; live agent acceptance pending.**
+**Status: four-agent live smoke tests passed; release gates remain.**
 Connector authentication and incremental Chat Completions/Responses streaming
-have been observed live. This is not yet a certified four-agent integration.
+have been observed live. Codex, OpenCode and Pi returned exactly `OK`; Claude
+edited a confined fixture and ran its test through the local adapter. These
+16 September checks used Qwen3-30B-A3B-Instruct-2507 and the exact versions in
+[the checklist](docs/status.md), not every model or arbitrary coding tasks.
 No real Nebius key belongs in this repository, a Sprite, or a command-line
 argument.
 
@@ -24,6 +27,8 @@ argument.
   ownership-checked Sprite service helper. No service starts during configure.
 - `scripts/verify acceptance`: offline requirement ledger, exact usage
   reconciliation and host-only leak scanning of separately authorized captures.
+- `scripts/verify-agents`: approved native exact-OK checks and a separately
+  gated, confined Claude edit/test fixture with independent result validation.
 - Offline tests, canonical template checks, pinned dependencies and redacted
   Git/current-source secret scanning in CI. Ordinary CI never spends inference.
 
@@ -60,9 +65,10 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 | S1–S3 | Authentication/caller-key replacement recorded; both streaming routes observed incrementally on 2026-09-16 with Qwen3-30B-A3B-Instruct-2507 |
 | S4 | Full intended policy/path coverage; existing approved test policy remains narrower |
 | S5 | Observe connector/Sprite attribution in deployed gateway logs |
-| S6 | Pinned/licensed adapter is offline-tested; real service and multi-turn task still required |
-| V1, V9 | Host-side credential-isolation review and an explicitly authorized POST-denial test |
-| V4–V8 | Gateway Playground and real four-agent smoke tests; no agent/model pair certified yet |
+| S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
+| V1 | Real-key isolation scan and authorized private capture collection still needed |
+| V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
+| V9 | One POST `/files` returned policy 403; retain independent no-dispatch evidence |
 | V10 | Confirm billing source and reconcile usage; probe usage fields alone do not establish this |
 | Build completion | Full live-check orchestration, approved capture collection and independent unaided-admin setup trial |
 | Launch | Security sign-off, publishing and partnership outreach, with authorization |

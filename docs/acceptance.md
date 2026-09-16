@@ -204,3 +204,10 @@ agent runs (including independent file/test verification for Claude). V9 is an
 actual POST denial test and needs permission because a failed restriction could
 allow dispatch. Live collection and billing-console evidence remain separate,
 explicit steps; missing permission or unavailable evidence is not a pass.
+
+The 16 September live smoke run passed V5–V8 and observed the required policy
+403 for V9. See [status](status.md) for exact versions and revisions. Those
+observations do not supply V1 capture evidence or V10 accounting. Production's
+connector Test button is available, but Gateway Playground itself is gated
+behind development mode; settle that acceptance-route discrepancy before
+claiming literal V4 coverage.
