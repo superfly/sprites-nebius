@@ -5,5 +5,5 @@
   "files": {
     "conversion.py": ["src/conversion/request_converter.py", "src/conversion/response_converter.py"]
   },
-  "adaptation": "Minimal conversion subset rewritten around validated dictionaries. Preserves mixed user/tool-result content, corrects forced tool choice, rejects unsupported blocks and malformed tool JSON. Omits upstream environment loading, payload logging, model fallbacks, transport and HTTP routes. Streaming framing is implemented separately in proxy/server.py."
+  "adaptation": "Minimal conversion subset rewritten around validated dictionaries. Preserves mixed user/tool-result content, corrects forced tool choice, and supports text-only mid-conversation system messages including turn-scoped clearing. Rejects unsupported blocks, dynamic tool changes and malformed tool JSON. Omits upstream environment loading, payload logging, model fallbacks, transport and HTTP routes. Streaming framing is implemented separately in proxy/server.py."
 }

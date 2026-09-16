@@ -34,10 +34,29 @@ def request_to_openai(body, model, max_tokens):
     if body.get("system"):
         messages.append({"role": "system", "content": text_content(body["system"])})
     pending = set()
-    for message in body["messages"]:
-        if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
+    history = body["messages"]
+    for index, message in enumerate(history):
+        if not isinstance(message, dict) or message.get("role") not in ("user", "assistant", "system"):
             raise ConversionError("Unsupported message role")
         role, content = message["role"], message.get("content")
+        if role == "system":
+            # Claude Code 2.1.273 uses mid-conversation system instructions.
+            # Keep their priority and position; never downgrade them to user
+            # text or promote a tool result. Tool changes/effort stay unsupported.
+            if set(message) - {"role", "content", "clear_at"} or pending:
+                raise ConversionError("Unsupported mid-conversation system settings")
+            before = next((m.get("role") for m in reversed(history[:index]) if isinstance(m, dict) and m.get("role") != "system"), None)
+            after = next((m.get("role") for m in history[index + 1:] if isinstance(m, dict) and m.get("role") != "system"), None)
+            if before != "user" or after not in (None, "assistant"):
+                raise ConversionError("Invalid mid-conversation system position")
+            text = text_content(content)
+            clear = message.get("clear_at", "never")
+            if clear not in ("never", "next_user_message"):
+                raise ConversionError("Unsupported system clearing rule")
+            if clear == "next_user_message" and any(isinstance(m, dict) and m.get("role") == "user" for m in history[index + 1:]):
+                continue
+            messages.append({"role": "system", "content": text})
+            continue
         if isinstance(content, str):
             if pending:
                 raise ConversionError("Missing tool results")

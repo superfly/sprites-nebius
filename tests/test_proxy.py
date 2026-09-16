@@ -112,6 +112,33 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ConversionError):
             request_to_openai(request_body(tools=[{"type": "web_search_20250305", "name": "web_search"}]), "model", 16384)
 
+    def test_native_claude_mid_conversation_system_preserves_priority(self):
+        history = [{"role": "user", "content": "task"},
+                   {"role": "system", "content": [{"type": "text", "text": "constraint"}]}]
+        result = request_to_openai(request_body(system="base", messages=history), "model", 16384)
+        self.assertEqual(result["messages"], [{"role": "system", "content": "base"},
+            {"role": "user", "content": "task"}, {"role": "system", "content": "constraint"}])
+
+    def test_turn_scoped_system_clears_only_after_next_user(self):
+        history = [{"role": "user", "content": "task"},
+                   {"role": "system", "clear_at": "next_user_message", "content": "reminder"}]
+        self.assertEqual(len(request_to_openai(request_body(messages=history), "model", 16384)["messages"]), 2)
+        history += [{"role": "assistant", "content": "done"}, {"role": "user", "content": "next"}]
+        converted = request_to_openai(request_body(messages=history), "model", 16384)
+        self.assertEqual([m["role"] for m in converted["messages"]], ["user", "assistant", "user"])
+        self.assertEqual(history[1]["content"], "reminder")
+
+    def test_system_cannot_interrupt_tool_results_or_change_tools(self):
+        for history in [
+            [{"role": "system", "content": "first"}],
+            [{"role": "user", "content": "x"}, {"role": "system", "content": "x"}, {"role": "user", "content": "x"}],
+            [{"role": "user", "content": "x"}, {"role": "system", "content": [{"type": "tool_removal", "tool": {"name": "Read"}}]}],
+            [{"role": "user", "content": "x"}, {"role": "system", "content": "x", "output_config": {"effort": "high"}}],
+            [{"role": "assistant", "content": [{"type": "tool_use", "id": "one", "name": "Read", "input": {}}]}, {"role": "system", "content": "x"}],
+        ]:
+            with self.subTest(history=history), self.assertRaises(ConversionError):
+                request_to_openai(request_body(messages=history), "model", 16384)
+
 
 @unittest.skipIf(server is None, "Install proxy/requirements.txt to run proxy proofs")
 class ProxyTests(unittest.IsolatedAsyncioTestCase):
