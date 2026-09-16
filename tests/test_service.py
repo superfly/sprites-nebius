@@ -108,6 +108,16 @@ class ServiceTests(unittest.TestCase):
             service.stop_owned(self.home, run=run)
         self.assertFalse(any(call[0] == "delete" for call in self.run.calls))
 
+    def test_resume_cleanup_does_not_stop_exited_service_again(self):
+        service.start_owned(self.home, run=self.run)
+        self.run.rows[0]["state"] = {"status": "failed", "error": "exited with code 143"}
+        def run(args):
+            if args[0] == "stop":
+                raise service.ServiceError("HTTP 409: already exited")
+            return self.run(args)
+        self.assertTrue(service.stop_owned(self.home, run=run))
+        self.assertEqual(self.run.rows, [])
+
     def test_unknown_create_result_is_not_retried(self):
         def uncertain(args):
             if args[0] == "create":

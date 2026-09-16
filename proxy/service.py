@@ -180,12 +180,15 @@ def _stop_owned(home, *, run):
         raise ServiceError("Uncertain service creation cannot be cleared by an empty listing; manual review required")
     if row:
         name = row["name"]
-        run(["stop", name])
-        row = matching_service(marker, services(run))
+        # The public stop endpoint returns 409 for an already exited service.
+        # Resume cleanup from its terminal state instead of issuing stop twice.
+        if runtime_status(row) == "running":
+            run(["stop", name])
+            row = matching_service(marker, services(run))
         if row:
             # The runtime's WaitForStop accepts stopped OR failed: SIGTERM
             # can leave exit code 143 and status failed after a successful
-            # explicit stop. Stop also cancels automatic restart. Still reject
+            # explicit stop. Deletion also removes restart state. Still reject
             # running/transitional states or a remaining process identifier.
             state = row.get("state", {})
             if (runtime_status(row) not in ("stopped", "failed")
