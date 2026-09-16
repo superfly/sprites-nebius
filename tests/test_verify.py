@@ -237,6 +237,26 @@ class StreamTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_write_denial_requires_approval_before_client_creation(self):
+        with patch.object(verify, "Client") as client, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                verify.main(["write-denial", "--gateway-url", BASE])
+        client.assert_not_called()
+
+    def test_one_empty_write_denial_with_gateway_policy_evidence(self):
+        client = FakeClient(models(), json_response({"error": "endpoint is blocked by policy"}, 403))
+        result = verify.write_denial(client, BASE)[0]
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(client.calls[1], (BASE + "/files", {"method": "POST", "bearer": verify.PLACEHOLDER, "payload": {}}))
+        self.assertEqual(len(client.calls), 2)
+
+    def test_generic_forbidden_or_wrong_http_does_not_prove_path_denial(self):
+        for status, body in ((403, {"error": "private upstream message"}),
+                             (400, {"error": "endpoint is blocked by policy"}), (403, {"error": []})):
+            result = verify.write_denial(FakeClient(models(), json_response(body, status)), BASE)[0]
+            self.assertEqual(result["status"], "fail")
+            self.assertNotIn("private upstream", json.dumps(result))
+
     def test_paid_requests_require_opt_in_before_client_creation(self):
         with patch.object(verify, "Client") as client, contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as raised:
@@ -257,6 +277,12 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(client.calls[1][1]["payload"]["max_tokens"], 256)
         self.assertEqual(client.calls[2][1]["payload"]["max_output_tokens"], 256)
         self.assertFalse(client.calls[2][1]["payload"]["store"])
+        for row in results:
+            self.assertEqual(row["request_attempts"], 1)
+            self.assertEqual(row["requested_output_limit"], 256)
+            self.assertEqual(row["model"], "test-model")
+            self.assertTrue(row["started_at"].endswith("Z"))
+            self.assertLessEqual(row["started_at"], row["finished_at"])
 
     def test_unknown_model_does_not_generate(self):
         client = FakeClient(models())
@@ -320,6 +346,8 @@ class SafetyTests(unittest.TestCase):
             code = verify.main(["access", "--gateway-url", BASE, "--expect", "outside"])
         self.assertEqual(code, 0)
         self.assertFalse(json.loads(out.getvalue())["full_spec_verified"])
+        self.assertRegex(json.loads(out.getvalue())["harness_sha256"], r"^[a-f0-9]{64}$")
+        self.assertTrue(json.loads(out.getvalue())["recorded_at"].endswith("Z"))
 
     def test_partial_http_body_is_sanitized(self):
         response = Response()

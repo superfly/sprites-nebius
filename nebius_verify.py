@@ -7,11 +7,14 @@ Only inference probes send POST requests, with explicit CLI opt-in and no retrie
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import hashlib
 from http.client import HTTPException
 import json
 import math
 import re
 import time
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
@@ -22,6 +25,16 @@ INVALID_BEARER = "deliberately-invalid-nebius-test-bearer"
 MAX_BODY = 2 * 1024 * 1024
 MAX_LINE = 128 * 1024
 PROMPT = "Count from one to twenty, one number per line. Do not explain."
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def evidence_identity():
+    # Hash the actual uploaded harness, not an assumed checkout revision.
+    return {"recorded_at": utc_now(),
+            "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
 
 
 class ProbeError(Exception):
@@ -151,7 +164,8 @@ def access(client, base, expected):
 
     with client.request(base + "/models") as response:
         ids = model_ids(response)
-    results = [{"check": "S1/V4", "status": "pass", "models": ids}]
+    results = [{"check": "S1", "status": "pass", "models": ids,
+                "note": "CLI model discovery; not the V4 Gateway Playground UI check"}]
     with client.request(base + "/models", bearer=INVALID_BEARER) as response:
         # A successful baseline is necessary before the invalid-bearer comparison.
         other_ids = model_ids(response)
@@ -286,14 +300,36 @@ def inference(client, base, model, max_tokens):
     )
     for api, path, payload in payloads:
         payload.update(model=model, stream=True)
+        started_at = utc_now()
         try:
             with client.request(base + path, method="POST", bearer=PLACEHOLDER,
                                 payload=payload) as response:
-                results.append(inspect_stream(response, api, timeout=client.timeout))
+                result = inspect_stream(response, api, timeout=client.timeout)
         except (ProbeError, OSError, HTTPException) as exc:
             detail = str(exc) if isinstance(exc, ProbeError) else "Stream transport failed"
-            results.append({"check": "S3 " + api, "status": "fail", "detail": detail})
+            result = {"check": "S3 " + api, "status": "fail", "detail": detail}
+        result.update(started_at=started_at, finished_at=utc_now(), model=model,
+                      endpoint=path, requested_output_limit=max_tokens,
+                      request_attempts=1)
+        results.append(result)
     return results
+
+
+def write_denial(client, base):
+    """One explicitly authorized empty POST, never an upload or inference call."""
+    with client.request(base + "/models") as response:
+        model_ids(response)  # A missing Sprite identity must not look like path denial.
+    started = utc_now()
+    with client.request(base + "/files", method="POST", bearer=PLACEHOLDER,
+                        payload={}) as response:
+        status = response.status
+        body = read_json(response)
+    expected = {"endpoint is blocked by policy", "endpoint is not in allowed list"}
+    matched = isinstance(body, dict) and isinstance(body.get("error"), str) and body["error"] in expected
+    return [{"check": "V9", "status": "pass" if status == 403 and matched else "fail",
+             "started_at": started, "finished_at": utc_now(), "http_status": status,
+             "gateway_policy_error_observed": matched, "request_attempts": 1,
+             "note": "HTTP and gateway policy error observed; retain separate no-upstream-dispatch evidence"}]
 
 
 def parser():
@@ -311,6 +347,10 @@ def parser():
     paid_cli.add_argument("--max-output-tokens", type=token_limit, default=256)
     paid_cli.add_argument("--approve-paid-requests", action="store_true",
                           help="Required opt-in; sends up to two inference POSTs, without retries")
+    denial_cli = commands.add_parser("write-denial", help="One permission-gated POST /files denial probe")
+    denial_cli.add_argument("--gateway-url", type=gateway_url, required=True)
+    denial_cli.add_argument("--approve-write-denial", action="store_true",
+                            help="Requires prior authorization: a broken policy may dispatch upstream")
     return cli
 
 
@@ -319,17 +359,21 @@ def main(argv=None):
     args = cli.parse_args(argv)
     if args.command == "inference" and not args.approve_paid_requests:
         cli.error("inference requires --approve-paid-requests and prior authorization for spend")
+    if args.command == "write-denial" and not args.approve_write_denial:
+        cli.error("write-denial requires --approve-write-denial and prior authorization")
     client = Client(args.timeout)
     try:
         if args.command == "discover":
             results = discover(client)
         elif args.command == "access":
             results = access(client, args.gateway_url, args.expect)
+        elif args.command == "write-denial":
+            results = write_denial(client, args.gateway_url)
         else:
             results = inference(client, args.gateway_url, args.model, args.max_output_tokens)
     except (ProbeError, OSError, HTTPException) as exc:
         detail = str(exc) if isinstance(exc, ProbeError) else "Transport failed; body omitted"
         results = [{"check": args.command, "status": "fail", "detail": detail}]
-    print(json.dumps({"scope": "connector probes only", "full_spec_verified": False,
+    print(json.dumps({**evidence_identity(), "scope": "connector probes only", "full_spec_verified": False,
                       "results": results}, indent=2))
     return 0 if all(row["status"] == "pass" for row in results) else 1

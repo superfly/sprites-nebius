@@ -50,7 +50,21 @@ The allowed probe first requires a successful `/models` response, repeats with
 an intentionally invalid placeholder bearer, then checks GET denial for file,
 batch and fine-tuning paths. A 403 is a path-denial observation, not by itself
 proof of which hop denied it. Correlate gateway logs. GET denial does not claim
-that the spec's POST `/files` check V9 has passed. No write-denial POST is sent.
+that the spec's POST `/files` check V9 has passed. `access` sends no write-denial
+POST. After separate authorization, use:
+
+```sh
+python3 scripts/verify write-denial \
+  --gateway-url 'https://api.sprites.dev/v1/gateway/custom_api/CONNECTION_ID' \
+  --approve-write-denial
+```
+
+This does a successful model-list preflight followed by exactly one empty JSON
+POST `/files`, with no retry or actual file content. A broken policy could still
+dispatch to Nebius, so ordinary read-only/spend approval is not authorization
+for this operation. A pass requires HTTP 403 plus the gateway's precise policy
+error, not a generic provider/authentication denial. Independently preserve
+no-upstream-dispatch evidence before treating V9 as fully established.
 
 Run the same access command with `--expect outside` from the laptop (expects
 401), and with `--expect unlabeled` from a separate approved unlabeled Sprite
@@ -78,16 +92,15 @@ text. Increase only after checking model pricing and obtaining spend approval.
 Responses requests use `store: false`; the harness does not request tools or
 execute generated code. Upstream retention remains subject to Nebius policy.
 
-The request advertises `Accept: text/event-stream, application/json` because
-the Sprites gateway currently requires JSON-compatible content negotiation
-before proxying. An SSE-only Accept header returns HTTP 406 even for a GET of
-`/models`. Streaming is still requested with `stream: true`, and a JSON response
-does **not** pass the inference probe: it still requires `text/event-stream`
-and valid completion events. This header compatibility measure does not resolve
-or establish the absence of gateway buffering. Obtain fresh approval before
-retrying inference after a failed run.
+The request advertises `Accept: text/event-stream, application/json` for
+compatibility with older gateway releases. The deployed streaming fix also
+accepts SSE-only negotiation. Streaming is requested with `stream: true`, and
+a JSON response does **not** pass the probe: it requires `text/event-stream`
+and valid completion events. Obtain fresh approval before retrying inference
+after a failed run.
 
-Results record counts, timing and numeric usage only, never model output,
+Results record the harness SHA-256, per-request UTC interval, model, requested
+output limit, attempt count, timing and numeric usage only, never model output,
 reasoning, raw errors or real keys. Successful SSE termination and nonempty text
 are required. A stream needs multiple text deltas spanning at least 50 ms to
 report incremental delivery observed. A burst is **inconclusive**, not proof of
