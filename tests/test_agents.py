@@ -128,6 +128,27 @@ class RunnerTests(unittest.TestCase):
             self.execute(args(approve=True))
         self.assertEqual(self.calls, [])
 
+    def test_existing_opencode_jsonc_is_validated(self):
+        self.configure(["opencode"])
+        config = self.home / ".config/opencode/opencode.json"
+        config.rename(config.with_suffix(".jsonc"))
+        report = self.execute(args("opencode", True))
+        self.assertEqual(report["results"][0]["status"], "pass")
+
+    def test_ambiguous_opencode_configuration_refused(self):
+        self.configure(["opencode"])
+        config = self.home / ".config/opencode/opencode.json"
+        config.with_suffix(".jsonc").write_bytes(config.read_bytes())
+        with self.assertRaises(agents.AgentError):
+            self.execute(args("opencode", True))
+        self.assertEqual(self.calls, [])
+
+    def test_sprite_node_path_preserved_without_inheriting_shell_path(self):
+        env = agents.isolated_environment(self.home, "/opt/agents/bin/pi", node="/.sprite/bin/node")
+        self.assertEqual(env["PATH"], "/opt/agents/bin:/.sprite/bin:/usr/local/bin:/usr/bin:/bin")
+        with self.assertRaises(agents.AgentError):
+            agents.isolated_environment(self.home, "/opt/agents/bin/pi", node="relative/node")
+
     def test_pi_run_is_sanitized_temporary_and_metadata_only(self):
         self.configure(["pi"])
         before = (self.home / ".pi/agent/models.json").read_bytes()

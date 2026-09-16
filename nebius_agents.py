@@ -111,6 +111,12 @@ def load_selection(home, agents):
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}", model):
             raise AgentError("Invalid selected model")
         specs = fields(agents, gateway, model)
+        normal = ".config/opencode/opencode.json"
+        commented = normal + "c"
+        if normal in specs and safe_path(home, commented).exists():
+            if safe_path(home, normal).exists():
+                raise AgentError("Both OpenCode JSON and JSONC config exist; resolve precedence first")
+            specs[commented] = specs.pop(normal)
         for relative, (kind, changes) in specs.items():
             original = read_file(safe_path(home, relative))
             if original is None:
@@ -128,13 +134,18 @@ def load_selection(home, agents):
         raise AgentError("Invalid or missing agent configuration; contents omitted") from None
 
 
-def isolated_environment(root, executable):
+def isolated_environment(root, executable, *, node=None):
     # Never inherit provider keys, login credentials, command hooks, proxy
     # settings or agent-specific config overrides from the invoking shell.
     # Keep the approved installed prefix's bin directory for env-based Node
     # shebangs; do not inherit every absolute PATH entry from the caller.
     executable_dir = str(Path(executable).absolute().parent)
-    safe_dirs = list(dict.fromkeys([executable_dir, "/usr/local/bin", "/usr/bin", "/bin"]))
+    runtime_dirs = []
+    if node is not None:
+        if not Path(node).is_absolute() or Path(node).name != "node":
+            raise AgentError("Node executable must be an absolute path")
+        runtime_dirs.append(str(Path(node).parent))
+    safe_dirs = list(dict.fromkeys([executable_dir, *runtime_dirs, "/usr/local/bin", "/usr/bin", "/bin"]))
     return {"PATH": os.pathsep.join(safe_dirs), "HOME": str(root / "home"),
             "TMPDIR": str(root / "tmp"), "XDG_CONFIG_HOME": str(root / "home/.config"),
             "XDG_DATA_HOME": str(root / "home/.local/share"),
@@ -268,7 +279,7 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
                 with tempfile.TemporaryDirectory(prefix="sprites-nebius-agent-") as directory:
                     root = Path(directory)
                     work = prepare(root, agent, gateway, model)
-                    env = isolated_environment(root, executable)
+                    env = isolated_environment(root, executable, node=which("node"))
                     code, raw = run([executable, "--version"], cwd=work, env=env, timeout=10)
                     versions = re.findall(rb"(?<![\d.])\d+\.\d+\.\d+(?![\d.])", raw)
                     if code or versions != [PINS[agent].encode()]:
@@ -281,7 +292,9 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
                     row.update(status="pass" if passed else "fail", exact_ok=passed)
                     if not passed:
                         row["reason"] = "Final answer was not exactly OK; content omitted"
-            except (AgentError, ConfigureError, OSError):
+            except AgentError as error:
+                row.update(status="inconclusive", reason=str(error))
+            except (ConfigureError, OSError):
                 row.update(status="inconclusive", reason="Agent/config/version/output check failed; inspect locally under fresh approval, no output logged")
             stopped = row["status"] != "pass"
         row["finished_at"] = utcnow()
