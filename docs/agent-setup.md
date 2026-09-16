@@ -69,6 +69,21 @@ their final answer is short. Setup flags do not grant an inference allowance.
 Use the [acceptance procedure](acceptance.md) to record genuine V5–V8 evidence,
 including independent verification of Claude's file edit and test result.
 
+After fresh approval for native agent inference, dry-plan an explicit selection:
+
+```sh
+.venv/bin/python scripts/verify-agents --agents codex,opencode,pi
+```
+
+Then add `--approve-agent-runs` only for the approved batch. The runner checks
+the pinned executable versions, uses fresh temporary agent homes, disables
+tools/plugins where the native CLI supports it, accepts only an exact `OK`,
+does not retry, and stops the batch after the first non-pass. A timeout is not a
+request or spend cap: a native agent may make more than one provider request.
+It deliberately reports Claude V8 as blocked even with the flag; editing and
+running agent-written code requires a separate disposable execution scope and
+verified confinement. Do not use permission-bypass flags as a substitute.
+
 ## What configure owns
 
 | Agent | User-level file | Managed routing |
