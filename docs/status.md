@@ -16,12 +16,19 @@ are not exact provider-request or dollar caps; no automatic retries were used.
 | V7 Pi | 0.85.1 | Exact `OK`; `f987cca`, 07:29:19–07:29:29 UTC |
 | V8 Claude | 2.1.273 | Edit + test tool results, 4 streamed deltas, independent test passed; `0f87f40`, 07:45:52–07:46:07 UTC |
 
+The table above records 16 September 2026. After hardening, Claude alone was
+rerun at clean commit `9fd19d4` on 17 September, 20:02:15–20:03:49 UTC
+(18 September Melbourne). The one invocation passed with the permitted edit,
+successful test tool result, four streamed deltas and an independent test rerun.
+All 195 offline tests also passed on the Sprite under Python 3.13.7. No retry
+was made; exact upstream request/token totals were not reconciled for this run.
+
 Codex emits a pre-turn custom-model fallback-metadata notice. The verifier
 recognizes only that exact notice; other errors and tool use still fail V5.
 These are dated smoke observations, not blanket certification or evidence
 silently relabeled for a later commit. No full 25-requirement pass is claimed.
-The subsequent pre-PR hardening changes were checked offline; no new paid
-agent runs or production changes were made during that review.
+The pre-PR hardening review itself was offline; the separately authorized
+Claude rerun above provides live evidence for its final implementation.
 
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
@@ -38,7 +45,7 @@ agent runs or production changes were made during that review.
 | B5 | Conditional quickstart, exact candidate installation pins and connector guide written; independent unaided-admin acceptance still required |
 | B6 | Reconciliation tooling/guide implemented; observed gateway and provider counts match, but full V10 prerequisites remain |
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
-| L2 | Not published; requires explicit authorization |
+| L2 | Private repository/internal PR authorized; public release and ecosystem listing remain pending explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
 | V1 | Host-only matcher and coverage checks tested with fake captures; actual before/after filesystem and all-process-environment collection not performed |
 | V2 | Fresh laptop GET returned expected 401 at 07:23:26 UTC |
@@ -51,11 +58,14 @@ agent runs or production changes were made during that review.
 
 ## Current state
 
-All seven managed files were independently compared to their original bytes
-after `configure --off`; all matched. Only our owned temporary adapter service
-definitions were removed; runtime logs and private configuration backups remain.
-The pinned agent prefix and reviewed checkout remain on the dedicated test
-Sprite. No connector policy, labels, GitHub content or publication was changed.
+After the original four-agent batch, all seven managed files matched their
+original bytes following `configure --off`. After the post-hardening Claude
+rerun, all four tracked files matched their original bytes/existence; active
+and pending state, the ownership marker and port-8083 listener were absent.
+Only owned temporary adapter service definitions were removed; runtime logs and
+private configuration backups remain. The pinned agent prefix and reviewed
+checkout remain on the dedicated test Sprite. Neither live batch changed
+connector policy or labels.
 
 The user subsequently authorized scoped usage/billing inspection and signed
 into Grafana. VictoriaLogs App Logs supplied the 12 attributed records for

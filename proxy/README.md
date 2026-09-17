@@ -6,6 +6,10 @@ sign-off or broad model compatibility. It translates text/custom-tool Messages r
 to Chat Completions through the configured Sprites Nebius connector. It never
 accepts or installs a provider key.
 
+The same confined check passed again after hardening at `9fd19d4` on
+17 September UTC (18 September Melbourne), including real edit/test tool
+results, streaming, independent test validation and configuration restoration.
+
 ## Install and run after approval
 
 Requires Python 3.12+. Install the reviewed runtime in this directory:

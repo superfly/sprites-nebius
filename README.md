@@ -3,12 +3,18 @@
 Run agents inside Fly.io Sprites with Nebius inference credentials held by a
 Sprites Custom API Connector, not inside the sandbox.
 
+This repository is a client-side setup and validation toolkit for an existing
+Custom API connector. It does not implement a built-in or managed Nebius
+connector, provision provider credentials, or include the Sprites gateway.
+
 **Status: four-agent live smoke tests passed; release gates remain.**
 Connector authentication and incremental Chat Completions/Responses streaming
 have been observed live. Codex, OpenCode and Pi returned exactly `OK`; Claude
 edited a confined fixture and ran its test through the local adapter. These
 16 September checks used Qwen3-30B-A3B-Instruct-2507 and the exact versions in
 [the checklist](docs/status.md), not every model or arbitrary coding tasks.
+The confined Claude edit/test check passed again after hardening at `9fd19d4`
+on 17 September UTC (18 September Melbourne); the other agents were not rerun.
 No real Nebius key belongs in this repository, a Sprite, or a command-line
 argument.
 
