@@ -92,7 +92,8 @@ Run it only on the intended dedicated test Sprite, with the owned proxy healthy.
 It uses Claude's restricted mode, fresh home/work directories, only Read/Edit/Bash,
 and a fail-closed PreToolUse hook. The hook permits one arithmetic edit and a
 fixed test command; it rejects other paths, commands, symlinks, changed tests,
-and code outside the exact harmless arithmetic AST. It does not use blanket
+and any bytes outside the exact harmless arithmetic fixture, including encoding
+declarations or extra comments. It does not use blanket
 permission bypasses. The verifier requires successful edit/test tool results,
 stream events and an independent test rerun. Six agentic turns and a timeout
 bound execution but are not a strict provider-request or dollar cap. This
@@ -100,6 +101,13 @@ fixture depends on the reviewed CLI and a trusted test Sprite; it is not a
 general-purpose sandbox for arbitrary agent-written programs.
 
 ## What configure owns
+
+Configuration and aggregate recovery records must each fit the 2 MiB limit.
+Setup checks both its apply journal and future restore journal before editing
+files; base64 snapshots mean the total supported source size is smaller than
+2 MiB. Oversized setups fail with guidance to reduce config size or select
+fewer agents. Later unrelated edits are checked again before restoration or
+stopping the owned service.
 
 | Agent | User-level file | Managed routing |
 | --- | --- | --- |

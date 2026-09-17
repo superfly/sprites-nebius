@@ -24,6 +24,27 @@ class FixtureTests(unittest.TestCase):
         for replacement in ['__import__("os").system("id")', 'a * b', 'a + b\nimport os']:
             self.assertFalse(permitted(self.work, self.event('Edit', file_path=path, old_string='a - b', new_string=replacement)))
 
+    def test_equivalent_source_is_not_the_approved_edit(self):
+        path = str(self.work / 'arithmetic.py')
+        for replacement in ['# coding: unicode_escape\n' + AFTER,
+                            '# comment\n' + AFTER, AFTER + '\n',
+                            AFTER.replace('a + b', '(a + b)'), '\ufeff' + AFTER]:
+            with self.subTest(replacement=replacement):
+                self.assertFalse(permitted(self.work, self.event(
+                    'Edit', file_path=path, old_string=BEFORE, new_string=replacement)))
+
+    def test_fixture_execution_requires_exact_bytes(self):
+        for name, expected in [('arithmetic.py', AFTER), ('test_arithmetic.py', TEST)]:
+            for raw in [("# coding: unicode_escape\n" + expected).encode(),
+                        expected.replace('\n', '\r\n').encode(),
+                        b'\xef\xbb\xbf' + expected.encode(), b'\xff']:
+                with self.subTest(name=name, raw=raw):
+                    (self.work / 'arithmetic.py').write_bytes(AFTER.encode())
+                    (self.work / 'test_arithmetic.py').write_bytes(TEST.encode())
+                    (self.work / name).write_bytes(raw)
+                    self.assertFalse(valid_fixture(self.work, fixed=True))
+                    self.assertFalse(permitted(self.work, self.event('Bash', command=TEST_COMMAND)))
+
     def test_test_edit_and_outside_read_denied(self):
         self.assertFalse(permitted(self.work, self.event('Edit', file_path=str(self.work/'test_arithmetic.py'), old_string=TEST, new_string='pass')))
         for path in ['/etc/passwd', str(self.work/'../outside'), 'arithmetic.py']:

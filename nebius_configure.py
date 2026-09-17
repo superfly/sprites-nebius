@@ -23,12 +23,20 @@ from nebius_verify import Client, PLACEHOLDER, ProbeError, discover, model_ids
 AGENTS = ("codex", "opencode", "pi", "claude")
 ENV_KEY = "SPRITES_NEBIUS_PLACEHOLDER"
 STATE = ".local/state/sprites-nebius"
+# Shared by configuration readers and aggregate ownership/recovery records.
 MAX_CONFIG = 2 * 1024 * 1024
 MISSING = object()
 
 
 class ConfigureError(Exception):
     """A diagnostic without configuration contents or credentials."""
+
+
+def bounded_content(content):
+    if content is not None and len(content) > MAX_CONFIG:
+        raise ConfigureError("Configuration or recovery state exceeds the 2 MiB limit; "
+                             "select fewer agents or reduce configuration size")
+    return content
 
 
 def safe_path(home, relative):
@@ -55,6 +63,7 @@ def read_file(path):
 
 
 def atomic_write(path, content):
+    bounded_content(content)
     read_file(path)  # Check the destination and every parent before replacement.
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temporary = tempfile.mkstemp(prefix=".sprites-nebius-", dir=path.parent)
@@ -416,28 +425,42 @@ def recover(home, state_dir):
         return
     try:
         pending = json.loads(raw)
+        old_active = bounded_content(unpacked(pending["old_active"]))
         for row in pending["files"]:
+            before = bounded_content(unpacked(row["before"]))
+            after = bounded_content(unpacked(row["after"]))
             current = read_file(safe_path(home, row["path"]))
-            if current not in (unpacked(row["before"]), unpacked(row["after"])):
+            if current not in (before, after):
                 raise ConfigureError("Interrupted update conflicts with a later edit; manual recovery required")
         for row in reversed(pending["files"]):
             replace_file(safe_path(home, row["path"]), unpacked(row["before"]))
-        replace_file(state_dir / "active.json", unpacked(pending["old_active"]))
+        replace_file(state_dir / "active.json", old_active)
         path.unlink()
     except (ValueError, KeyError, TypeError):
         raise ConfigureError("Invalid recovery journal; manual recovery required") from None
 
 
-def transact(home, state_dir, files, active):
-    previous = read_file(state_dir / "active.json")
+def prepare_transaction(files, active, previous):
+    """Keep every write and its rollback readable by all ownership consumers."""
+    for row in files:
+        bounded_content(unpacked(row["before"]))
+        bounded_content(unpacked(row["after"]))
+    bounded_content(previous)
+    active_raw = bounded_content(json.dumps(active).encode() if active else None)
     pending = {"files": files, "old_active": packed(previous)}
-    atomic_write(state_dir / "pending.json", json.dumps(pending).encode())
+    pending_raw = bounded_content(json.dumps(pending).encode())
+    return active_raw, pending_raw
+
+
+def transact(home, state_dir, files, active):
+    active_raw, pending_raw = prepare_transaction(files, active, read_file(state_dir / "active.json"))
+    atomic_write(state_dir / "pending.json", pending_raw)
     try:
         for row in files:
             if read_file(safe_path(home, row["path"])) != unpacked(row["before"]):
                 raise ConfigureError("Configuration changed during planning; nothing overwritten")
             replace_file(safe_path(home, row["path"]), unpacked(row["after"]))
-        replace_file(state_dir / "active.json", json.dumps(active).encode() if active else None)
+        replace_file(state_dir / "active.json", active_raw)
         (state_dir / "pending.json").unlink()
     except BaseException:
         recover(home, state_dir)
@@ -499,6 +522,7 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
             if not state:
                 return {"status": "already_off", "full_spec_verified": False}
             files = restoration(home, state)
+            prepare_transaction(files, None, raw_state)
             if not args.dry_run:
                 # Only the definition owned by proxy/service.py may be stopped.
                 # Validate all restoration conflicts before any service mutation.
@@ -536,6 +560,12 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
             return {"status": "unchanged", "source": str(state_dir / "env.sh"), "full_spec_verified": False}
         files = plan_files(home, agents, gateway, args.model)
         new_state = {"version": 1, "agents": list(agents), "gateway": gateway, "model": args.model, "files": files}
+        active_raw, _ = prepare_transaction(files, new_state, raw_state)
+        # A successful setup must also fit its untouched --off journal, which
+        # includes the old active state as well as both versions of each file.
+        undo_files = [{**row, "before": row["after"], "after": row["before"]}
+                      for row in files if not row["path"].endswith("/off.sh")]
+        prepare_transaction(undo_files, None, active_raw)
         if not args.dry_run:
             # Private complete originals remain available even after a scoped restore.
             backup_dir = state_dir / "backups"

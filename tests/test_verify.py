@@ -4,6 +4,7 @@ from http.client import IncompleteRead
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
+import signal
 import threading
 import time
 import unittest
@@ -320,24 +321,99 @@ class SafetyTests(unittest.TestCase):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "not-for-the-client",
                                        "NEBIUS_API_KEY": "also-not-for-the-client"}):
             client = verify.Client()
-            with patch.object(client.opener, "open", return_value=Response()) as opener:
-                client.request(BASE + "/models")
+            with patch.object(client.opener, "open", side_effect=lambda *args, **kwargs: Response()) as opener:
+                with client.request(BASE + "/models"):
+                    pass
                 request = opener.call_args.args[0]
                 self.assertIsNone(request.get_header("Authorization"))
-                client.request(BASE + "/models", bearer=verify.INVALID_BEARER)
-                self.assertEqual(opener.call_args.args[0].get_header("Authorization"),
-                                 "Bearer " + verify.INVALID_BEARER)
+                with client.request(BASE + "/models", bearer=verify.INVALID_BEARER):
+                    self.assertEqual(opener.call_args.args[0].get_header("Authorization"),
+                                     "Bearer " + verify.INVALID_BEARER)
 
     def test_transport_failures_are_sanitized_and_http_errors_not_followed(self):
         client = verify.Client()
         with patch.object(client.opener, "open", side_effect=URLError("private details")):
             with self.assertRaises(verify.ProbeError) as raised:
-                client.request(BASE)
+                with client.request(BASE):
+                    pass
         self.assertNotIn("private details", str(raised.exception))
         error = HTTPError(BASE, 302, "redirect", {}, io.BytesIO(b"private"))
         with patch.object(client.opener, "open", side_effect=error):
             with client.request(BASE) as response:
                 self.assertEqual(response.status, 302)
+
+    def test_deadline_refuses_conflicting_timer_before_network(self):
+        client = verify.Client()
+        with patch.object(signal, "getitimer", return_value=(1.0, 0.0)), \
+             patch.object(client.opener, "open") as opener:
+            with self.assertRaisesRegex(verify.ProbeError, "another process timer"):
+                with client.request(BASE):
+                    pass
+        opener.assert_not_called()
+
+    def test_deadline_refuses_unsupported_platform_before_network(self):
+        client = verify.Client()
+        with patch.object(verify, "signal", object()), \
+             patch.object(client.opener, "open") as opener:
+            with self.assertRaisesRegex(verify.ProbeError, "POSIX main-thread"):
+                with client.request(BASE):
+                    pass
+        opener.assert_not_called()
+
+    def test_invalid_deadlines_fail_before_network(self):
+        for timeout in (0, -1, float("inf"), float("nan"), 121):
+            client = verify.Client(timeout)
+            with self.subTest(timeout=timeout), patch.object(client.opener, "open") as opener:
+                with self.assertRaisesRegex(verify.ProbeError, "deadline must be"):
+                    with client.request(BASE):
+                        pass
+                opener.assert_not_called()
+
+    def test_deadline_refuses_worker_thread_before_network(self):
+        client = verify.Client()
+        errors = []
+
+        def request():
+            try:
+                with client.request(BASE):
+                    pass
+            except verify.ProbeError as error:
+                errors.append(str(error))
+
+        with patch.object(client.opener, "open") as opener:
+            worker = threading.Thread(target=request)
+            worker.start()
+            worker.join(timeout=1)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, ["Bounded probes require a POSIX main-thread process"])
+        opener.assert_not_called()
+
+    def test_deadline_restores_handler_and_disarms_after_error(self):
+        previous = signal.getsignal(signal.SIGALRM)
+        with self.assertRaisesRegex(verify.ProbeError, "duration limit"):
+            with verify.request_deadline(0.01):
+                time.sleep(1)
+        self.assertEqual(signal.getsignal(signal.SIGALRM), previous)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0.0, 0.0))
+
+    def test_deadline_restores_handler_after_normal_or_exceptional_exit(self):
+        previous = signal.getsignal(signal.SIGALRM)
+        for exception in (None, URLError("private details"), ValueError("consumer error")):
+            response = Response()
+            client = verify.Client()
+            with self.subTest(exception=exception), \
+                 patch.object(client.opener, "open", return_value=response,
+                              side_effect=exception if isinstance(exception, URLError) else None):
+                try:
+                    with client.request(BASE):
+                        if exception:
+                            raise exception
+                except (verify.ProbeError, ValueError):
+                    pass
+                self.assertEqual(signal.getsignal(signal.SIGALRM), previous)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0.0, 0.0))
+                if not isinstance(exception, URLError):
+                    self.assertTrue(response.closed)
 
     def test_cli_never_claims_complete_spec_success(self):
         client = FakeClient(Response(status=401))
@@ -374,6 +450,9 @@ class LoopbackHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.server.paths.append(self.path)
+        if self.path.startswith("/trickle-"):
+            self.trickle()
+            return
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "/must-not-follow")
@@ -390,6 +469,31 @@ class LoopbackHandler(BaseHTTPRequestHandler):
         time.sleep(0.15)
         self.wfile.write(last)
         self.wfile.flush()
+
+    def trickle(self):
+        # Each byte arrives faster than the socket timeout, but the entire
+        # response takes much longer than the request's wall-clock deadline.
+        body = b"data: " + b"x" * 100
+        if self.path == "/trickle-status":
+            slow = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + body
+        elif self.path == "/trickle-headers":
+            self.wfile.write(b"HTTP/1.1 200 OK\r\n")
+            self.wfile.flush()
+            slow = b"Content-Type: application/json\r\n\r\n" + body
+        else:
+            self.send_response(429 if self.path == "/trickle-error" else 200)
+            self.send_header("Content-Type", "text/event-stream"
+                             if self.path == "/trickle-sse" else "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            slow = body
+        try:
+            for value in slow:
+                self.wfile.write(bytes([value]))
+                self.wfile.flush()
+                time.sleep(0.015)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # The bounded client is expected to close this connection.
 
     def log_message(self, *args):
         pass
@@ -428,6 +532,21 @@ class LoopbackTests(unittest.TestCase):
             result = verify.inspect_stream(response, "chat")
         self.assertEqual(result["status"], "pass")
         self.assertEqual(self.server.payloads, [payload])
+
+    def test_trickling_headers_json_sse_and_error_bodies_are_bounded(self):
+        paths = ("status", "headers", "json", "sse", "error")
+        for path in paths:
+            with self.subTest(path=path):
+                started = time.monotonic()
+                with self.assertRaisesRegex(verify.ProbeError, "duration limit"):
+                    with verify.Client(timeout=0.1).request(self.url + "/trickle-" + path) as response:
+                        if path == "sse":
+                            list(verify.sse_data(response))
+                        else:
+                            verify.read_json(response)
+                self.assertLess(time.monotonic() - started, 0.6)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0.0, 0.0))
+        self.assertEqual(self.server.paths, ["/trickle-" + path for path in paths])
 
 
 if __name__ == "__main__":

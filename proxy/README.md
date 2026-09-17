@@ -86,6 +86,18 @@ zero. That per-request limit is not a session cost cap.
   an error, not fabricated billing evidence. `/v1/messages/count_tokens` is only
   a local character-based estimate, marked by `X-Token-Count-Estimate: true`.
   That endpoint cannot establish V10 reconciliation.
+- Both response modes reject malformed tool calls, duplicate tool IDs and
+  tool/finish-reason mismatches before emitting tool blocks. The caller's
+  `disable_parallel_tool_use` flag is validated and mapped to the upstream
+  parallel-call control. Returned calls must respect the declared tools,
+  forced/disabled tool choice and single-call constraint. Stream completion
+  cannot be replaced by later deltas or conflicting finish markers; client
+  tool permissions remain the execution boundary.
+- Request and response bodies are bounded to 2 MiB. Streaming events, including
+  framing and empty fields, are bounded to 128 KiB and parsed in linear time
+  with cancellation checkpoints. Compressed upstream replies are rejected
+  before decoding. This per-Sprite loopback adapter is not a public multi-tenant
+  service or a per-user quota system.
 - `/health` is local-only and never makes an inference call. There is no
   `/test-connection` spending endpoint. Request/response bodies are not logged;
   safe errors omit provider error bodies.

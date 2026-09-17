@@ -108,10 +108,14 @@ a broken endpoint: fast/short outputs may naturally arrive together. Conversely,
 network delivery timing alone cannot prove that no buffering exists upstream.
 Use a controlled delayed upstream reproduction to establish the cause of #588.
 
-The timeout applies to socket operations and is checked between SSE lines; it
-is not a strict total wall-clock deadline. Data is limited to 2 MiB per response
-and 128 KiB per SSE line. Redirects, malformed/truncated streams, error events,
-and non-SSE inference responses do not count as success.
+The timeout covers each complete HTTP request, including status, headers and
+body reads, so a peer sending occasional bytes cannot extend it indefinitely.
+These standalone probes require a POSIX main-thread process with no existing
+real-time timer; unsupported contexts fail before network access. This is not
+a hard real-time guarantee against OS scheduling or uninterruptible system
+calls. Data is limited to 2 MiB per response and 128 KiB per SSE line. Redirects,
+malformed/truncated streams, error events and non-SSE inference responses do
+not count as success.
 
 ## Evidence still needed
 

@@ -207,7 +207,10 @@ explicit steps; missing permission or unavailable evidence is not a pass.
 
 The 16 September live smoke run passed V5–V8 and observed the required policy
 403 for V9. See [status](status.md) for exact versions and revisions. Those
-observations do not supply V1 capture evidence or V10 accounting. Production's
+observations do not supply V1 capture evidence. Subsequent authorized gateway
+inspection established S5 attribution and an exact numerical match to the
+recorded Nebius day view; V10 still needs project binding and a matching,
+complete accounting scope. Production's
 connector Test button is available, but Gateway Playground itself is gated
 behind development mode; settle that acceptance-route discrepancy before
 claiming literal V4 coverage.

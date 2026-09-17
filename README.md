@@ -64,12 +64,12 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 | --- | --- |
 | S1–S3 | Authentication/caller-key replacement recorded; both streaming routes observed incrementally on 2026-09-16 with Qwen3-30B-A3B-Instruct-2507 |
 | S4 | Full intended policy/path coverage; existing approved test policy remains narrower |
-| S5 | Observe connector/Sprite attribution in deployed gateway logs |
+| S5 | Verified in production usage records for the 2026-09-16 batch; private identifiers and logs retained outside this repository |
 | S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
 | V1 | Real-key isolation scan and authorized private capture collection still needed |
 | V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
 | V9 | One POST `/files` returned policy 403; retain independent no-dispatch evidence |
-| V10 | Confirm billing source and reconcile usage; probe usage fields alone do not establish this |
+| V10 | Gateway totals match the observed Nebius day-view counts exactly; project binding, aligned windows and complete accounting still need confirmation |
 | Build completion | Full live-check orchestration, approved capture collection and independent unaided-admin setup trial |
 | Launch | Security sign-off, publishing and partnership outreach, with authorization |
 

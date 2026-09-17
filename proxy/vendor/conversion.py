@@ -35,6 +35,16 @@ def request_to_openai(body, model, max_tokens):
         messages.append({"role": "system", "content": text_content(body["system"])})
     pending = set()
     history = body["messages"]
+    # Compute lookahead once: long runs of system messages must not rescan history.
+    following = [None] * len(history)
+    next_role, future_user = None, False
+    for index in range(len(history) - 1, -1, -1):
+        following[index] = (next_role, future_user)
+        message = history[index]
+        if isinstance(message, dict) and message.get("role") != "system":
+            next_role = message.get("role")
+            future_user = future_user or next_role == "user"
+    before = None
     for index, message in enumerate(history):
         if not isinstance(message, dict) or message.get("role") not in ("user", "assistant", "system"):
             raise ConversionError("Unsupported message role")
@@ -45,18 +55,18 @@ def request_to_openai(body, model, max_tokens):
             # text or promote a tool result. Tool changes/effort stay unsupported.
             if set(message) - {"role", "content", "clear_at"} or pending:
                 raise ConversionError("Unsupported mid-conversation system settings")
-            before = next((m.get("role") for m in reversed(history[:index]) if isinstance(m, dict) and m.get("role") != "system"), None)
-            after = next((m.get("role") for m in history[index + 1:] if isinstance(m, dict) and m.get("role") != "system"), None)
+            after, has_future_user = following[index]
             if before != "user" or after not in (None, "assistant"):
                 raise ConversionError("Invalid mid-conversation system position")
             text = text_content(content)
             clear = message.get("clear_at", "never")
             if clear not in ("never", "next_user_message"):
                 raise ConversionError("Unsupported system clearing rule")
-            if clear == "next_user_message" and any(isinstance(m, dict) and m.get("role") == "user" for m in history[index + 1:]):
+            if clear == "next_user_message" and has_future_user:
                 continue
             messages.append({"role": "system", "content": text})
             continue
+        before = role
         if isinstance(content, str):
             if pending:
                 raise ConversionError("Missing tool results")
@@ -117,6 +127,11 @@ def request_to_openai(body, model, max_tokens):
     choice = body.get("tool_choice", {"type": "auto"})
     if not isinstance(choice, dict):
         raise ConversionError("Invalid tool choice")
+    if "disable_parallel_tool_use" in choice:
+        disabled = choice["disable_parallel_tool_use"]
+        if not isinstance(disabled, bool):
+            raise ConversionError("disable_parallel_tool_use must be a boolean")
+        request["parallel_tool_calls"] = not disabled
     kind = choice.get("type")
     if kind in ("auto", "any", "none"):
         if tools:
@@ -150,24 +165,64 @@ def usage(value):
 def tool_block(call):
     try:
         data = json.loads(call["function"]["arguments"])
-        if not isinstance(data, dict) or not all(isinstance(call.get(k), str) and call[k] for k in ("id",)) or not isinstance(call["function"]["name"], str):
+        if (not isinstance(data, dict) or not isinstance(call.get("id"), str) or not call["id"]
+                or not isinstance(call["function"]["name"], str) or not call["function"]["name"]
+                or call.get("type", "function") != "function"):
             raise ValueError()
+        json.dumps(data, allow_nan=False)
         return {"type": "tool_use", "id": call["id"], "name": call["function"]["name"], "input": data}
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
         raise ConversionError("Malformed upstream tool call") from None
 
 
-def response_to_claude(body, original_model, message_id):
+def single_choice(choices, *, allow_empty=False):
+    if isinstance(choices, list):
+        if not choices and allow_empty:
+            return None
+        if len(choices) == 1 and isinstance(choices[0], dict):
+            return choices[0]
+    raise ConversionError("Expected one upstream choice")
+
+
+def response_text(value):
+    if value is not None and not isinstance(value, str):
+        raise ConversionError("Malformed upstream text")
+    return value
+
+
+def completion_tools(calls, reason, request):
+    calls = [] if calls is None else calls
+    if not isinstance(calls, list) or bool(calls) != (reason == "tool_use"):
+        raise ConversionError("Inconsistent upstream tool finish reason")
+    blocks = [tool_block(call) for call in calls]
+    if len({block["id"] for block in blocks}) != len(blocks):
+        raise ConversionError("Duplicate upstream tool ID")
+    allowed = {tool["function"]["name"] for tool in request.get("tools", [])}
+    choice = request.get("tool_choice", "auto")
+    if (any(block["name"] not in allowed for block in blocks)
+            or (blocks and choice == "none")
+            or (request.get("parallel_tool_calls") is False and len(blocks) > 1)
+            or (isinstance(choice, dict) and any(
+                block["name"] != choice["function"]["name"] for block in blocks))):
+        raise ConversionError("Upstream tools violate the requested tool constraints")
+    return blocks
+
+
+def response_to_claude(body, original_model, message_id, request):
     try:
-        choice = body["choices"][0]
+        if body.get("error") is not None:
+            raise ConversionError("Gateway response reported an error")
+        choice = single_choice(body["choices"])
         message = choice["message"]
+        text = response_text(message.get("content"))
+        reason = stop_reason(choice["finish_reason"])
         blocks = []
-        if message.get("content"):
-            blocks.append({"type": "text", "text": message["content"]})
-        blocks.extend(tool_block(call) for call in message.get("tool_calls", []) or [])
+        if text:
+            blocks.append({"type": "text", "text": text})
+        blocks.extend(completion_tools(message.get("tool_calls"), reason, request))
         return {"id": message_id, "type": "message", "role": "assistant", "model": original_model,
                 "content": blocks or [{"type": "text", "text": ""}],
-                "stop_reason": stop_reason(choice["finish_reason"]), "stop_sequence": None,
+                "stop_reason": reason, "stop_sequence": None,
                 "usage": usage(body.get("usage"))}
-    except (KeyError, IndexError, TypeError):
+    except (KeyError, IndexError, TypeError, AttributeError):
         raise ConversionError("Malformed upstream response") from None

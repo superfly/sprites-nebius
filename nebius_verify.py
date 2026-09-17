@@ -7,12 +7,15 @@ Only inference probes send POST requests, with explicit CLI opt-in and no retrie
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 from http.client import HTTPException
 import json
 import math
 import re
+import signal
+import threading
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -52,6 +55,7 @@ class Client:
         # Do not inherit proxy credentials or redirect outside the selected gateway.
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
+    @contextmanager
     def request(self, url, *, method="GET", bearer=None, payload=None):
         headers = {"Accept": "application/json", "User-Agent": "sprites-nebius-verify"}
         if bearer is not None:
@@ -64,12 +68,40 @@ class Client:
             # Still request streaming in the body and require SSE in the response.
             headers["Accept"] = "text/event-stream, application/json"
         request = Request(url, data=data, headers=headers, method=method)
-        try:
-            return self.opener.open(request, timeout=self.timeout)
-        except HTTPError as response:
-            return response
-        except (URLError, OSError, HTTPException):
-            raise ProbeError("Gateway connection failed; no response body logged") from None
+        # Socket timeouts reset on each received byte, so even a bounded read()
+        # or readline() can hang on a trickling peer. Cover headers and all body
+        # reads with one wall-clock deadline. These probes run on a Linux Sprite;
+        # fail closed elsewhere instead of silently weakening that bound.
+        with request_deadline(self.timeout):
+            try:
+                response = self.opener.open(request, timeout=self.timeout)
+            except HTTPError as error:
+                response = error
+            except (URLError, OSError, HTTPException):
+                raise ProbeError("Gateway connection failed; no response body logged") from None
+            with response:
+                yield response
+
+
+@contextmanager
+def request_deadline(timeout):
+    if not math.isfinite(timeout) or not 0 < timeout <= 120:
+        raise ProbeError("Request deadline must be between 0 and 120 seconds")
+    if not hasattr(signal, "setitimer") or threading.current_thread() is not threading.main_thread():
+        raise ProbeError("Bounded probes require a POSIX main-thread process")
+    if signal.getitimer(signal.ITIMER_REAL) != (0.0, 0.0):
+        raise ProbeError("Cannot run a bounded probe while another process timer is active")
+
+    def expired(signum, frame):
+        raise ProbeError("Request exceeded the duration limit; response body omitted")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, timeout)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def gateway_url(value):
@@ -335,7 +367,7 @@ def write_denial(client, base):
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--timeout", type=positive_timeout, default=30.0,
-                     help="Socket timeout / stream duration check in seconds (default: 30)")
+                     help="Per-request deadline including headers and body in seconds (default: 30)")
     commands = cli.add_subparsers(dest="command", required=True)
     commands.add_parser("discover", help="GET visible Nebius connectors from inside a Sprite")
     access_cli = commands.add_parser("access", help="GET-only authorization and path probes")

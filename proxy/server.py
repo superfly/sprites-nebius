@@ -24,7 +24,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from proxy.vendor.conversion import (
-    ConversionError, request_to_openai, response_to_claude, stop_reason, tool_block, usage,
+    ConversionError, completion_tools, request_to_openai, response_text,
+    response_to_claude, single_choice, stop_reason, usage,
 )
 
 PLACEHOLDER = "sprites-nebius-placeholder-not-a-secret"
@@ -94,40 +95,75 @@ async def close_response(response):
 async def upstream_bytes(client, settings, payload):
     response = None
     try:
-        with anyio.fail_after(settings.timeout):
-            request = client.build_request("POST", settings.gateway + "/chat/completions", json=payload,
-                                           headers={"Authorization": "Bearer " + PLACEHOLDER,
-                                                    "Accept": "text/event-stream, application/json"})
-            response = await client.send(request, stream=True)
-            if response.status_code != 200:
-                # No response bodies, URLs, prompts or credentials enter errors.
-                raise ConversionError("Gateway inference request was rejected")
-            expected = "text/event-stream" if payload["stream"] else "application/json"
-            if response.headers.get("content-type", "").split(";")[0].lower() != expected:
-                raise ConversionError("Unexpected gateway response content type")
-            total = 0
-            async for chunk in response.aiter_bytes():
-                total += len(chunk)
-                if total > MAX_BODY:
-                    raise ConversionError("Gateway response exceeded size limit")
-                yield chunk
+        request = client.build_request("POST", settings.gateway + "/chat/completions", json=payload,
+                                       headers={"Authorization": "Bearer " + PLACEHOLDER,
+                                                "Accept": "text/event-stream, application/json",
+                                                "Accept-Encoding": "identity"})
+        response = await client.send(request, stream=True)
+        if response.status_code != 200:
+            # No response bodies, URLs, prompts or credentials enter errors.
+            raise ConversionError("Gateway inference request was rejected")
+        expected = "text/event-stream" if payload["stream"] else "application/json"
+        if response.headers.get("content-type", "").split(";")[0].lower() != expected:
+            raise ConversionError("Unexpected gateway response content type")
+        if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+            raise ConversionError("Compressed gateway responses are unsupported")
+        total = 0
+        async for chunk in response.aiter_bytes():
+            total += len(chunk)
+            if total > MAX_BODY:
+                raise ConversionError("Gateway response exceeded size limit")
+            yield chunk
     finally:
         if response is not None:
             await close_response(response)
 
 
+async def with_deadline(items, timeout):
+    """Bound the whole consumption without leaving a cancel scope across yield."""
+    deadline = anyio.current_time() + timeout
+    try:
+        while True:
+            remaining = deadline - anyio.current_time()
+            if remaining <= 0:
+                raise TimeoutError
+            with anyio.fail_after(remaining):
+                item = await items.__anext__()
+            if anyio.current_time() >= deadline:
+                raise TimeoutError
+            yield item
+    except StopAsyncIteration:
+        return
+    finally:
+        await items.aclose()
+
+
 async def sse_objects(chunks):
-    buffer = b""
+    buffer = bytearray()
     data = []
+    event_size = 0
     try:
         async for chunk in chunks:
-            buffer += chunk
-            while b"\n" in buffer:
-                line, buffer = buffer.split(b"\n", 1)
-                if len(line) > MAX_EVENT:
+            # Split once per chunk; never repeatedly copy its unconsumed suffix.
+            lines = chunk.split(b"\n")
+            for index, line in enumerate(lines):
+                if index % 256 == 0:
+                    await anyio.lowlevel.checkpoint()
+                if event_size + len(buffer) + len(line) > MAX_EVENT:
+                    raise ConversionError("Upstream SSE event exceeded limit")
+                if index == len(lines) - 1:
+                    buffer.extend(line)
+                    continue
+                if buffer:
+                    line = bytes(buffer) + line
+                    buffer.clear()
+                # Count framing and newlines too, including empty data fields.
+                event_size += len(line) + 1
+                if event_size > MAX_EVENT:
                     raise ConversionError("Upstream SSE event exceeded limit")
                 line = line.rstrip(b"\r")
                 if not line:
+                    event_size = 0
                     if data:
                         raw = b"\n".join(data)
                         data = []
@@ -136,17 +172,13 @@ async def sse_objects(chunks):
                             return
                         try:
                             item = json.loads(raw)
-                        except (ValueError, UnicodeError):
+                        except (ValueError, UnicodeError, RecursionError):
                             raise ConversionError("Malformed upstream SSE event") from None
                         if not isinstance(item, dict):
                             raise ConversionError("Malformed upstream SSE object")
                         yield item
                 elif line.startswith(b"data:"):
                     data.append(line[5:].lstrip(b" "))
-                    if sum(map(len, data)) > MAX_EVENT:
-                        raise ConversionError("Upstream SSE event exceeded limit")
-            if len(buffer) > MAX_EVENT:
-                raise ConversionError("Upstream SSE event exceeded limit")
         raise ConversionError("Upstream stream ended without DONE")
     finally:
         await chunks.aclose()
@@ -154,7 +186,7 @@ async def sse_objects(chunks):
 
 async def translated_stream(client, settings, payload, original_model, message_id):
     payload = {**payload, "stream_options": {"include_usage": True}}
-    stream = sse_objects(upstream_bytes(client, settings, payload))
+    stream = with_deadline(sse_objects(upstream_bytes(client, settings, payload)), settings.timeout)
     next_index, text_index, calls = 0, None, {}
     final_reason, final_usage, done, started = None, None, False, False
     try:
@@ -167,26 +199,32 @@ async def translated_stream(client, settings, payload, original_model, message_i
             if chunk is None:
                 done = True
                 break
+            if chunk.get("error") is not None:
+                raise ConversionError("Gateway stream reported an error")
             if chunk.get("usage") is not None:
                 final_usage = usage(chunk["usage"])
-            choices = chunk.get("choices", [])
-            if not choices:
+            choice = single_choice(chunk.get("choices", []), allow_empty=True)
+            if choice is None:
                 continue
-            if len(choices) != 1 or not isinstance(choices[0], dict):
-                raise ConversionError("Expected one upstream choice")
-            choice = choices[0]
+            if final_reason is not None:
+                raise ConversionError("Upstream choice arrived after completion")
             delta = choice.get("delta", {})
             if not isinstance(delta, dict):
                 raise ConversionError("Malformed upstream delta")
-            text = delta.get("content")
+            text = response_text(delta.get("content"))
             if text:
-                if not isinstance(text, str) or calls:
+                if calls:
                     raise ConversionError("Unsupported upstream content ordering")
                 if text_index is None:
                     text_index, next_index = next_index, next_index + 1
                     yield event("content_block_start", index=text_index, content_block={"type": "text", "text": ""})
                 yield event("content_block_delta", index=text_index, delta={"type": "text_delta", "text": text})
-            for part in delta.get("tool_calls", []) or []:
+            tool_parts = delta.get("tool_calls")
+            if tool_parts is not None and not isinstance(tool_parts, list):
+                raise ConversionError("Malformed upstream tool calls")
+            for part in tool_parts or []:
+                if not isinstance(part, dict) or part.get("type", "function") != "function":
+                    raise ConversionError("Malformed upstream tool call")
                 if text_index is not None:
                     yield event("content_block_stop", index=text_index)
                     text_index = None
@@ -194,7 +232,9 @@ async def translated_stream(client, settings, payload, original_model, message_i
                 if isinstance(index, bool) or not isinstance(index, int) or index < 0:
                     raise ConversionError("Invalid upstream tool index")
                 call = calls.setdefault(index, {"id": None, "function": {"name": "", "arguments": ""}})
-                if part.get("id"):
+                if part.get("id") is not None:
+                    if not isinstance(part["id"], str) or not part["id"]:
+                        raise ConversionError("Invalid upstream tool ID")
                     if call["id"] and call["id"] != part["id"]:
                         raise ConversionError("Upstream tool ID changed")
                     call["id"] = part["id"]
@@ -213,9 +253,7 @@ async def translated_stream(client, settings, payload, original_model, message_i
             yield event("content_block_stop", index=text_index)
         # Buffer tool arguments until valid: never execute a truncated/empty
         # accidental tool. Text remains incremental; tool blocks are serialized.
-        if bool(calls) != (final_reason == "tool_use"):
-            raise ConversionError("Inconsistent upstream tool finish reason")
-        blocks = [tool_block(call) for call in calls.values()]
+        blocks = completion_tools(list(calls.values()), final_reason, payload)
         for block in blocks:
             arguments = json.dumps(block.pop("input"))
             yield event("content_block_start", index=next_index, content_block={**block, "input": {}})
@@ -261,7 +299,7 @@ async def read_request(request):
             raise ConversionError("Request exceeds size limit")
     try:
         value = json.loads(body)
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         raise ConversionError("Expected JSON request") from None
     if not isinstance(value, dict):
         raise ConversionError("Expected JSON object")
@@ -322,7 +360,7 @@ def create_app(settings, *, transport=None):
                 count = len(json.dumps({k: converted[k] for k in ("messages", "tools") if k in converted}))
                 return JSONResponse({"input_tokens": max(1, (count + 2) // 3)}, headers={"X-Token-Count-Estimate": "true"})
             payload = request_to_openai(body, model, settings.max_tokens)
-        except (ConversionError, TypeError, AttributeError, ValueError):
+        except (ConversionError, TypeError, AttributeError, ValueError, RecursionError):
             return error_response(400, "Unsupported or invalid Messages request")
         message_id = "msg_" + uuid.uuid4().hex
         if payload["stream"]:
@@ -330,15 +368,15 @@ def create_app(settings, *, transport=None):
                                                media_type="text/event-stream", headers={"Cache-Control": "no-store"})
 
         async def complete():
-            parts = upstream_bytes(client, settings, payload)
+            parts = with_deadline(upstream_bytes(client, settings, payload), settings.timeout)
             try:
                 data = b"".join([part async for part in parts])
-                return response_to_claude(json.loads(data), body["model"], message_id)
+                return response_to_claude(json.loads(data), body["model"], message_id, payload)
             finally:
                 await parts.aclose()
         try:
             return await until_disconnect(complete(), request)
-        except (ConversionError, httpx.HTTPError, TimeoutError, ValueError, TypeError, AttributeError):
+        except (ConversionError, httpx.HTTPError, TimeoutError, ValueError, TypeError, AttributeError, RecursionError):
             return error_response(502)
 
     return app

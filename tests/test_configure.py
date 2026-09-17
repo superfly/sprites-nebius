@@ -290,6 +290,75 @@ class ConfigureTests(unittest.TestCase):
             self.run_config(off=True)
         self.assertEqual(path.read_bytes(), before)
 
+    def test_oversized_ownership_or_future_restore_fails_before_changes(self):
+        # 800 KB overflows active.json; 500 KB fits active.json but overflows
+        # the future --off journal because that also embeds old_active.
+        for size in (800_000, 500_000):
+            path = self.write('.config/opencode/opencode.json', '{"theme":"' + 'x' * size + '"}')
+            before = path.read_bytes()
+            for dry_run in (True, False):
+                with self.subTest(size=size, dry_run=dry_run), self.assertRaisesRegex(config.ConfigureError, '2 MiB'):
+                    self.run_config(agents='opencode', dry_run=dry_run)
+                self.assertEqual(path.read_bytes(), before)
+                state = self.home / config.STATE
+                self.assertFalse((state / 'active.json').exists())
+                self.assertFalse((state / 'pending.json').exists())
+                self.assertFalse((state / 'backups').exists())
+                self.assertFalse((state / 'env.sh').exists())
+
+    def test_generated_config_limit_is_checked_before_changes(self):
+        path = self.write('.config/opencode/opencode.json', '{}' + ' ' * (config.MAX_CONFIG - 3))
+        before = path.read_bytes()
+        with self.assertRaisesRegex(config.ConfigureError, '2 MiB'):
+            self.run_config(agents='opencode')
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse((self.home / config.STATE / 'backups').exists())
+
+    def test_large_unrelated_edit_blocks_restore_before_stopping_service(self):
+        path = self.write('.config/opencode/opencode.json', '{"theme":"' + 'x' * 100_000 + '"}')
+        self.run_config(agents='opencode')
+        doc = config.JsonDocument(path.read_text())
+        doc.set(('unrelated',), 'y' * 800_000)
+        path.write_text(doc.render())
+        before = path.read_bytes()
+        state = self.home / config.STATE / 'active.json'
+        active = state.read_bytes()
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run), patch('proxy.service.stop_owned') as stop, \
+                    self.assertRaisesRegex(config.ConfigureError, '2 MiB'):
+                self.run_config(off=True, dry_run=dry_run)
+            stop.assert_not_called()
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(state.read_bytes(), active)
+            self.assertFalse((state.parent / 'pending.json').exists())
+
+    def test_bounded_large_restore_failure_rolls_back_and_can_retry(self):
+        path = self.write('.config/opencode/opencode.json', '{"theme":"' + 'x' * 300_000 + '"}')
+        original = path.read_bytes()
+        pi = self.write('.pi/agent/settings.json', '{}')
+        self.run_config(agents='opencode,pi')
+        configured = path.read_bytes()
+        configured_pi = pi.read_bytes()
+        original_write = config.atomic_write
+        failed = False
+
+        def fail_once(target, content):
+            nonlocal failed
+            if target == pi and not failed:
+                failed = True
+                raise OSError('simulated write failure')
+            original_write(target, content)
+
+        with patch.object(config, 'atomic_write', side_effect=fail_once), self.assertRaises(OSError):
+            self.run_config(off=True)
+        self.assertEqual(path.read_bytes(), configured)
+        self.assertEqual(pi.read_bytes(), configured_pi)
+        self.assertTrue((self.home / config.STATE / 'active.json').exists())
+        self.assertFalse((self.home / config.STATE / 'pending.json').exists())
+        self.run_config(off=True)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(pi.read_bytes(), b'{}')
+
     def test_partial_write_failure_rolls_back(self):
         path = self.write('.codex/config.toml', 'model="old"\n')
         original_write = config.atomic_write

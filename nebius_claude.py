@@ -2,13 +2,12 @@
 
 Claude's restricted mode confines native file tools to the temporary workspace.
 A PreToolUse hook permits only its two fixture files and one fixed test command.
-The command can execute only the exact harmless arithmetic AST below; edited
+The command can execute only the exact harmless arithmetic source below; edited
 tests, imports, calls, symlinks, alternate paths and shell commands are denied.
 This relies on the reviewed CLI and an otherwise trusted dedicated test Sprite.
 """
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 import shlex
@@ -38,7 +37,7 @@ def checked_file(work, name):
     path = work / name
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 8192:
         raise ValueError("Invalid fixture file")
-    return path.read_text()
+    return path.read_bytes()
 
 
 def valid_fixture(work, *, fixed=False):
@@ -47,12 +46,11 @@ def valid_fixture(work, *, fixed=False):
             return False
         if set(p.name for p in work.iterdir()) != {"arithmetic.py", "test_arithmetic.py"}:
             return False
-        if checked_file(work, "test_arithmetic.py") != TEST:
+        if checked_file(work, "test_arithmetic.py") != TEST.encode("utf-8"):
             return False
-        tree = ast.dump(ast.parse(checked_file(work, "arithmetic.py")))
         allowed = [AFTER] if fixed else [BEFORE, AFTER]
-        return tree in [ast.dump(ast.parse(source)) for source in allowed]
-    except (OSError, ValueError, SyntaxError, UnicodeError):
+        return checked_file(work, "arithmetic.py") in [source.encode("utf-8") for source in allowed]
+    except (OSError, ValueError):
         return False
 
 
@@ -82,13 +80,15 @@ def permitted(work, event):
             if not isinstance(old, str) or not old or not isinstance(new, str) or len(new) > 8192:
                 return False
             source = checked_file(work, "arithmetic.py")
+            old, new = old.encode("utf-8"), new.encode("utf-8")
             if source.count(old) != 1 or payload.get("replace_all"):
                 return False
             # Validate the proposed edit before Claude writes it, not only
-            # before executing it. Only the exact arithmetic fix is permitted.
-            return ast.dump(ast.parse(source.replace(old, new, 1))) == ast.dump(ast.parse(AFTER))
+            # before executing it. Byte equality also rejects encoding cookies
+            # that Python's source loader could interpret differently.
+            return source.replace(old, new, 1) == AFTER.encode("utf-8")
         return True
-    except (KeyError, TypeError, ValueError, OSError, SyntaxError):
+    except (KeyError, TypeError, ValueError, OSError):
         return False
 
 

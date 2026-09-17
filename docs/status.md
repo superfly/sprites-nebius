@@ -1,6 +1,6 @@
 # Requirement-to-evidence checklist
 
-Updated 16 September 2026. Live smoke success is not release/security sign-off.
+Updated 18 September 2026. Live smoke success is not release/security sign-off.
 Keep private resource identifiers and original usage evidence out of public Git.
 
 ## Live agent evidence
@@ -20,6 +20,8 @@ Codex emits a pre-turn custom-model fallback-metadata notice. The verifier
 recognizes only that exact notice; other errors and tool use still fail V5.
 These are dated smoke observations, not blanket certification or evidence
 silently relabeled for a later commit. No full 25-requirement pass is claimed.
+The subsequent pre-PR hardening changes were checked offline; no new paid
+agent runs or production changes were made during that review.
 
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
@@ -27,14 +29,14 @@ silently relabeled for a later commit. No full 25-requirement pass is claimed.
 | S2 | Historical invalid-caller-key override check passed; retain original dated evidence |
 | S3 | Live 2026-09-16: Chat Completions and Responses each completed with 50 text deltas spread over 2.00s and 1.66s respectively, using Qwen3-30B-A3B-Instruct-2507 |
 | S4 | GET denials and one POST `/files` policy 403 observed; test policy remains intentionally narrower than the full proposed allowlist |
-| S5 | Gateway emits attributed records in deployed code; actual records for this batch still need authorized inspection |
+| S5 | Authorized production inspection on September 17 found 12 unique completed usage records with the expected connector/Sprite attribution; server-side count also 12 |
 | S6 | Pinned MIT-derived adapter ran as owned Sprite service; confined real Claude edit/test round trip passed |
-| B1 | Licenses, pinned dependencies, 165 offline tests and redacted Git/source secret scans pass; public GitHub CI not run |
+| B1 | 195 offline tests, source checks, dependency compatibility/audit and redacted Git/source secret scans pass locally; public GitHub CI not run |
 | B2 | V5–V7 live checks passed; configuration dry-run/apply and byte-for-byte restoration verified |
 | B3 | V8 passed; service create, idempotent start, stop/delete/recreate and configuration-off exercised |
 | B4 | Gateway probes, permission-gated POST denial, evidence ledger/reconciliation and host capture scanner implemented; full cross-context collection/orchestration remains incomplete |
 | B5 | Conditional quickstart, exact candidate installation pins and connector guide written; independent unaided-admin acceptance still required |
-| B6 | Exact, attributable reconciliation tooling/guide implemented; live V10 result pending |
+| B6 | Reconciliation tooling/guide implemented; observed gateway and provider counts match, but full V10 prerequisites remain |
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
 | L2 | Not published; requires explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
@@ -45,7 +47,7 @@ silently relabeled for a later commit. No full 25-requirement pass is claimed.
 | V5–V7 | Passed scoped exact-OK checks above |
 | V8 | Passed confined edit/test task, stream events and independent test validation above |
 | V9 | One empty POST `/files` at 07:27:34–07:27:35 returned 403 with exact gateway policy error; independent no-dispatch evidence still needed |
-| V10 | Earlier streaming responses reported 46 input / 102 output tokens, not authoritative gateway accounting; last accessible billing snapshot refreshed at 05:41 UTC, before those requests |
+| V10 | Gateway: 27,100 input / 262 output tokens, exactly matching the recorded provider day view (0% difference). Project binding, aligned accounting windows and completeness/settlement still need confirmation |
 
 ## Current state
 
@@ -55,9 +57,13 @@ definitions were removed; runtime logs and private configuration backups remain.
 The pinned agent prefix and reviewed checkout remain on the dedicated test
 Sprite. No connector policy, labels, GitHub content or publication was changed.
 
-The post-acceptance billing refresh was blocked by browser safety review on
-private-account access grounds. Do not route around it; obtain authorization
-for the usage-only view. A scoped production-log approval question is also open.
+The user subsequently authorized scoped usage/billing inspection and signed
+into Grafana. VictoriaLogs App Logs supplied the 12 attributed records for
+06:30–07:50 UTC on September 16. The comparison uses the previously collected
+Nebius full-number day view, updated through 08:39 UTC, not a fresh billing
+fetch. Exact totals corroborate the run but do not establish key-to-project
+binding, final settlement, or absence of unrelated project traffic. Original
+evidence stays private and outside this repository.
 
 The earlier two-request allowance was consumed only by its original
 Chat/Responses batch. Later native tests followed the user's instruction to
