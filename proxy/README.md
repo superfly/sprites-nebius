@@ -44,13 +44,19 @@ The service has a unique name and a private ownership record. Start, stop and
 configuration restoration share a lock. Restoration validates unchanged owned
 settings, then stops and removes only the matching service definition; runtime
 logs remain. An uncertain create is never automatically retried or forgotten.
-The launcher uses an empty environment and isolated Python, with only PATH and
-HOME supplied. It never sets `--http-port`.
+The launcher uses an empty environment and isolated Python, with only PATH,
+HOME and a non-secret source fingerprint supplied. It never sets `--http-port`.
 
 Readiness requires the unchanged owned definition to be running and its fixed
 loopback `/health` endpoint to respond, within ten seconds after creation. No
 redirects, inherited HTTP proxies, or inference requests are used. Port 8083
 must be free before a new service is created; another listener is never evicted.
+The ownership record and service definition also bind the adapter source files
+and pinned requirements manifest. Changed sources or older records without a
+fingerprint cannot pass reuse/readiness: explicitly switch the owned setup off
+and activate it again after review. This detects ordinary stale-code reuse,
+not malicious process replacement or changes to installed dependencies. The
+explicit off path remains available for older owned services.
 If activation creates a confirmed service but readiness fails, only that new
 service is removed and configuration newly written by the invocation is restored.
 Existing setups are preserved. If creation or cleanup is uncertain, state remains

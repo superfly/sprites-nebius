@@ -111,8 +111,10 @@ under `/v1/oauth`) runs from the control plane and is not equivalent.
 Scott's V4 names **Gateway Playground**, which is still dev-only/unported in
 current source. The production per-Sprite Test is the proposed equivalent,
 **not yet an accepted change to the spec**. Obtain Scott's acceptance and record
-the actual route used before marking V4 passed; no new Playground service is
-needed to perform the underlying test.
+the actual route used before marking V4 passed. Production Test does not return
+or validate the model list: a generic 2xx success alone is insufficient. An
+accepted alternative must also retain a model-list check from the same Sprite
+and connector; see [verification](verification.md#v4-and-v10-explicit-operator-evidence).
 
 For B5, ask a separately authorized administrator to follow this guide unaided,
 including readback, labeling and the per-Sprite test. Record their outcome and

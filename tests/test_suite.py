@@ -1,6 +1,8 @@
 import copy
+from contextlib import nullcontext
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -233,6 +235,19 @@ class SuiteTests(unittest.TestCase):
         with self.assertRaises(suite.SuiteError):
             suite.transport([sys.executable, "-I", "-c", "print('PRIVATE_OUTPUT')"], timeout=2)
 
+    def test_transport_disables_cli_retries_without_inheriting_extra_environment(self):
+        code = ("import json, os; print(json.dumps({"
+                "'attempts': os.environ.get('SPRITE_EXEC_MAX_RETRIES'),"
+                "'unexpected': 'NEBIUS_TEST_PRIVATE' in os.environ}))")
+        for inherited in (None, "9"):
+            with self.subTest(inherited=inherited), patch.dict(os.environ, {"NEBIUS_TEST_PRIVATE": "fixture"}):
+                if inherited is None:
+                    os.environ.pop("SPRITE_EXEC_MAX_RETRIES", None)
+                else:
+                    os.environ["SPRITE_EXEC_MAX_RETRIES"] = inherited
+                result = suite.transport([sys.executable, "-I", "-c", code], timeout=2)
+            self.assertEqual(result, {"attempts": "1", "unexpected": False})
+
     def test_remote_cannot_forge_host_scan(self):
         code = "print('{\"scan\": {\"status\": \"pass\"}}')"
         self.assertEqual(suite.transport([sys.executable, "-I", "-c", code], timeout=2), {})
@@ -277,6 +292,33 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(result["cleanup"], "needs-attention")
         self.assertEqual(result["capture_samples"], {"process": 1, "fixture": 1})
         self.assertEqual(observed, ["start", {"process_ids": [123]}, {"roots": ["/fixture"]}, "finish"])
+
+    def test_claude_worker_checks_owned_adapter_before_agent_execution(self):
+        from proxy import service
+        p = plan()
+        for ready in (True, False):
+            calls = []
+            def readiness(home):
+                calls.append("readiness")
+                if not ready:
+                    raise service.ServiceError("stale service")
+            def execute(options, **kwargs):
+                calls.append("agent")
+                return {"results": [{"check": "V8", "status": "pass", "cleanup": "restored"}]}
+            with self.subTest(ready=ready), \
+                 patch.object(suite.Path, "is_dir", return_value=True), \
+                 patch.object(suite.agents, "git_revision", return_value={"git_revision": p["tested_revision"], "working_tree_dirty": False}), \
+                 patch.object(suite.agents, "load_selection", return_value=(p["gateway"], p["model"])), \
+                 patch.object(suite.agents, "execute", side_effect=execute), \
+                 patch.object(service, "ownership_lock", return_value=nullcontext()), \
+                 patch.object(service, "wait_ready", side_effect=readiness):
+                control = {"plan": p, "operation": "claude", "capture": False}
+                if ready:
+                    self.assertEqual(suite.worker(control)["results"][0]["status"], "pass")
+                else:
+                    with self.assertRaises(service.ServiceError):
+                        suite.worker(control)
+                self.assertEqual(calls, ["readiness", "agent"] if ready else ["readiness"])
 
     def test_invalid_gateway_plan_is_sanitized(self):
         p = plan(); p["gateway"] = "https://wrong.invalid/PRIVATE_VALUE"

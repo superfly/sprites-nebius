@@ -38,7 +38,7 @@ Claude rerun above provides live evidence for its final implementation.
 | S4 | GET denials and one POST `/files` policy 403 observed; test policy remains intentionally narrower than the full proposed allowlist |
 | S5 | Authorized production inspection on September 17 found 12 unique completed usage records with the expected connector/Sprite attribution; server-side count also 12 |
 | S6 | Pinned MIT-derived adapter ran as owned Sprite service; confined real Claude edit/test round trip passed |
-| B1 | Prior 195-test baseline and private PR CI passed; gap-closure changes require their own recorded checks before pushing |
+| B1 | Repo, licenses and secret-scan CI implemented; 283-test gap-closure baseline at `4c82e1d` passed both private PR and push CI checks |
 | B2 | V5–V7 live checks passed; configuration dry-run/apply and byte-for-byte restoration verified |
 | B3 | V8 passed; service create, idempotent start, stop/delete/recreate and configuration-off exercised |
 | B4 | Cross-context coordinator and streamed collector implemented with offline tests; approved live trial and V4/V10 operator-input boundary acceptance remain open |
@@ -50,7 +50,7 @@ Claude rerun above provides live evidence for its final implementation.
 | V1 | Keyless streamed lifecycle collection and host-only matcher implemented; actual sensitive collection not authorized/run, scope/timing awaits security acceptance |
 | V2 | Fresh laptop GET returned expected 401 at 07:23:26 UTC |
 | V3 | Historical unlabeled-Sprite 403 recorded; no fresh rerun this implementation batch |
-| V4 | Production connector Test returned 200, but Playground is development-gated; exact specified route remains blocked |
+| V4 | Production connector Test returned 200, but omits model-list evidence; Playground is development-gated. Exact specified route or an explicitly accepted complete alternative remains required |
 | V5–V7 | Passed scoped exact-OK checks above |
 | V8 | Passed confined edit/test task, stream events and independent test validation above |
 | V9 | One empty POST `/files` at 07:27:34–07:27:35 returned 403 with exact gateway policy error, satisfying the specified check; independent no-dispatch tracing is optional |
@@ -70,6 +70,13 @@ local fixture HTTP servers, Bash/Zsh activation and streamed-capture fault tests
 All 17 installed dependencies are compatible; source secret scan and whitespace
 checks passed. No live Sprite transport, native inference or real-key scan was
 run for these changes. This is not independent security or unaided-admin sign-off.
+
+Follow-up local acceptance guards on 18 September: **292 offline tests passed**
+after explicitly disabling CLI startup retries and refusing stale/unrecorded
+owned adapter source before reuse, readiness or a coordinated Claude run.
+Fixture tests cover legacy cleanup without automatic restart. Source secret
+scan, Bash/Zsh syntax and whitespace checks passed. These changes have no new
+live evidence and do not close V1, V4, V10 or the independent acceptance gates.
 
 After the original four-agent batch, all seven managed files matched their
 original bytes following `configure --off`. After the post-hardening Claude

@@ -204,6 +204,102 @@ class ServiceTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(service.ServiceError):
                 service.wait_ready(self.home, run=self.run, probe=probe)
 
+    def test_source_identity_is_bound_to_marker_and_runtime_arguments(self):
+        service.start_owned(self.home, run=self.run)
+        marker = service.load_marker(self.home)
+        fingerprint = service.source_fingerprint()
+        self.assertEqual(marker['source_sha256'], fingerprint)
+        self.assertEqual(self.run.rows[0]['args'].count(service.CODE_ENV + fingerprint), 1)
+
+    def test_source_change_refuses_reuse_and_health_but_preserves_owned_cleanup(self):
+        with patch.object(service, 'source_fingerprint', return_value='a' * 64):
+            service.start_owned(self.home, run=self.run)
+        self.run.calls.clear()
+        with patch.object(service, 'source_fingerprint', return_value='b' * 64):
+            with self.assertRaisesRegex(service.ServiceError, 'source is changed'):
+                service.start_owned(self.home, run=self.run)
+            with self.assertRaisesRegex(service.ServiceError, 'source is changed'):
+                service.wait_ready(self.home, run=self.run,
+                                   probe=lambda _: self.fail('stale source must not be probed'))
+        self.assertFalse(any(call[0] in ('create', 'stop', 'delete') for call in self.run.calls))
+        self.assertTrue((self.state / 'service-owned.json').exists())
+        self.assertTrue(service.stop_owned(self.home, run=self.run))
+
+    def test_legacy_service_is_not_reused_but_explicit_off_still_works(self):
+        service.start_owned(self.home, run=self.run)
+        marker = service.load_marker(self.home)
+        del marker['source_sha256']
+        marker['definition']['args'] = [arg for arg in marker['definition']['args']
+                                        if not arg.startswith(service.CODE_ENV)]
+        self.run.rows[0]['args'] = list(marker['definition']['args'])
+        atomic_write(self.state / 'service-owned.json', json.dumps(marker).encode())
+        self.run.calls.clear()
+        with self.assertRaisesRegex(service.ServiceError, 'unrecorded'):
+            service.start_owned(self.home, run=self.run)
+        with self.assertRaisesRegex(service.ServiceError, 'unrecorded'):
+            service.wait_ready(self.home, run=self.run, probe=lambda _: self.fail('legacy must not be probed'))
+        self.assertFalse(any(call[0] in ('create', 'stop', 'delete') for call in self.run.calls))
+        self.assertTrue(service.stop_owned(self.home, run=self.run))
+
+    def test_source_change_during_creation_retains_confirmed_ownership_for_off(self):
+        with patch.object(service, 'source_fingerprint', side_effect=['a' * 64, 'b' * 64]):
+            with self.assertRaisesRegex(service.ServiceError, 'source is changed'):
+                service.start_owned(self.home, run=self.run)
+        self.assertEqual(service.load_marker(self.home)['phase'], 'confirmed')
+        self.assertEqual(sum(call[0] == 'create' for call in self.run.calls), 1)
+        self.assertTrue(service.stop_owned(self.home, run=self.run))
+
+    def test_source_change_during_health_cannot_pass_readiness(self):
+        with patch.object(service, 'source_fingerprint', return_value='a' * 64):
+            service.start_owned(self.home, run=self.run)
+        with patch.object(service, 'source_fingerprint', side_effect=['a' * 64, 'b' * 64]):
+            with self.assertRaisesRegex(service.ServiceError, 'source is changed'):
+                service.wait_ready(self.home, run=self.run, probe=lambda _: True)
+
+    def test_missing_argument_binding_or_another_checkout_cannot_pass(self):
+        service.start_owned(self.home, run=self.run)
+        original = service.load_marker(self.home)
+        for changed in ('binding', 'checkout'):
+            marker = json.loads(json.dumps(original))
+            if changed == 'binding':
+                marker['definition']['args'] = [arg for arg in marker['definition']['args']
+                                                if not arg.startswith(service.CODE_ENV)]
+            else:
+                marker['definition']['dir'] = '/another/checkout'
+            atomic_write(self.state / 'service-owned.json', json.dumps(marker).encode())
+            with self.subTest(changed=changed), self.assertRaises(service.ServiceError):
+                service.start_owned(self.home, run=self.run)
+
+    def test_fingerprint_covers_python_sources_and_dependency_manifest(self):
+        root = self.home / 'source'
+        files = ('proxy/server.py', 'proxy/__init__.py', 'proxy/vendor/__init__.py',
+                 'proxy/vendor/conversion.py', 'proxy/requirements.txt')
+        for name in files:
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('source\n')
+        baseline = service.source_fingerprint(root)
+        self.assertEqual(service.source_fingerprint(root), baseline)
+        for name in files:
+            (root / name).write_text('changed\n')
+            with self.subTest(name=name):
+                self.assertNotEqual(service.source_fingerprint(root), baseline)
+            (root / name).write_text('source\n')
+        for name in ('proxy/new_module.py', 'proxy/.venv/lib/python/site-packages/httpx/client.py'):
+            extra = root / name
+            extra.parent.mkdir(parents=True, exist_ok=True)
+            extra.write_text('unrelated\n')
+        self.assertEqual(service.source_fingerprint(root), baseline)
+        with patch.object(service, 'MAX_SOURCE_BYTES', 1), self.assertRaises(service.ServiceError):
+            service.source_fingerprint(root)
+        target = root / 'proxy/server.py'
+        target.unlink()
+        with self.assertRaises(service.ServiceError):
+            service.source_fingerprint(root)
+        target.symlink_to(root / 'proxy/vendor/conversion.py')
+        with self.assertRaises(service.ServiceError):
+            service.source_fingerprint(root)
+
     def test_health_disables_proxies_redirects_and_bounds_body(self):
         import asyncio
         import httpx

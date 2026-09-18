@@ -160,6 +160,18 @@ Start from the schema above and make these changes:
   If source freshness is unknown, **do not substitute the browser refresh time**:
   reconciliation remains inconclusive, even after waiting or seeing equal totals.
 
+Provider collection is still manual. As of 18 September 2026, the official
+[Token Factory billing guide](https://docs.tokenfactory.nebius.com/other-capabilities/billing-new)
+documents the console Usage view, but we have not verified a supported API for
+authoritative project/model daily token totals or inference-key project lookup.
+Its [observability documentation](https://docs.tokenfactory.nebius.com/ai-models-inference/observability)
+restricts metrics to dedicated endpoints and excludes billing reconciliation;
+do not use Prometheus metrics as a substitute for serverless billing evidence.
+Automating retrieval needs a supported source with project/model identity,
+input/output token units, window boundaries and actual freshness semantics.
+Until then, automatic arithmetic over operator evidence is not automatic
+collection and does not close literal B4.
+
 Add this `gateway.export` metadata, filled with observed values rather than the
 example identifiers/digests:
 

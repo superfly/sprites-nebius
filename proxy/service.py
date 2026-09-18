@@ -6,11 +6,13 @@ import argparse
 import asyncio
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import socket
+import struct
 import sys
 import time
 import uuid
@@ -21,6 +23,10 @@ if __package__ in (None, ""):
 from nebius_configure import ConfigureError, STATE, atomic_write, read_file, safe_path
 
 MARKER = STATE + "/service-owned.json"
+CODE_ENV = "SPRITES_NEBIUS_SOURCE_SHA256="
+SOURCE_FILES = ("proxy/server.py", "proxy/__init__.py", "proxy/vendor/__init__.py",
+                "proxy/vendor/conversion.py", "proxy/requirements.txt")
+MAX_SOURCE_BYTES = 4 * 1024 * 1024
 
 
 class ServiceError(Exception):
@@ -84,9 +90,54 @@ def load_marker(home):
         int(name[15:], 16)
         if set(expected) != {"name", "cmd", "args", "dir", "env", "needs", "http_port"}:
             raise ValueError
+        fingerprint = row.get("source_sha256")
+        if fingerprint is not None and (not isinstance(fingerprint, str)
+                or len(fingerprint) != 64 or any(c not in "0123456789abcdef" for c in fingerprint)):
+            raise ValueError
         return row
     except (ValueError, TypeError, KeyError):
         raise ServiceError("Invalid service ownership record; manual review required") from None
+
+
+def source_fingerprint(root=None):
+    """Hash bounded proxy sources/requirements, not credentials or Git metadata.
+
+    This detects stale reuse after checkout changes; it is not attestation of
+    a process against a malicious local actor or of installed dependencies.
+    """
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    try:
+        digest = hashlib.sha256(b"sprites-nebius-proxy-source-v1\0")
+        total = 0
+        # Keep this explicit: proxy/.venv and unrelated helper code are not the
+        # running adapter's source, and must not be recursively traversed.
+        for source in SOURCE_FILES:
+            path = root / source
+            # read_file rejects symlinks, nonregular files and oversized files.
+            body = read_file(path)
+            if body is None:
+                raise ValueError
+            total += len(body)
+            if total > MAX_SOURCE_BYTES:
+                raise ValueError
+            name = source.encode()
+            digest.update(struct.pack("!I", len(name)) + name)
+            digest.update(struct.pack("!I", len(body)) + body)
+        return digest.hexdigest()
+    except (ConfigureError, OSError, ValueError):
+        raise ServiceError("Cannot verify bounded proxy source identity; inspect owned service state") from None
+
+
+def require_current_source(marker):
+    """Legacy ownership remains usable for off, never silently upgraded/reused."""
+    fingerprint = marker.get("source_sha256")
+    definition = marker["definition"]
+    arguments = definition.get("args")
+    root = Path(__file__).resolve().parents[1]
+    if (not fingerprint or definition.get("dir") != str(root)
+            or not isinstance(arguments, list) or arguments.count(CODE_ENV + fingerprint) != 1
+            or fingerprint != source_fingerprint(root)):
+        raise ServiceError("Owned adapter source is changed or unrecorded; use approved --off then --start")
 
 
 def matching_service(marker, rows):
@@ -165,6 +216,7 @@ def wait_ready(home, *, run=command, timeout=10, probe=healthy):
         marker = load_marker(home)
         if marker is None or marker["phase"] != "confirmed":
             raise ServiceError("Owned service is not confirmed; retain state for inspection")
+        require_current_source(marker)
         row = matching_service(marker, services(status_run))
         if row is None or runtime_status(row) in ("stopped", "failed"):
             raise ServiceError("Owned adapter exited before becoming healthy")
@@ -175,6 +227,7 @@ def wait_ready(home, *, run=command, timeout=10, probe=healthy):
             row = matching_service(marker, services(status_run))
             if row is None or runtime_status(row) != "running":
                 raise ServiceError("Owned adapter stopped during readiness")
+            require_current_source(marker)
             if time.monotonic() < deadline:
                 return
         time.sleep(min(0.1, max(0, deadline - time.monotonic())))
@@ -192,8 +245,10 @@ def _start_owned(home, *, run, python):
     marker_path = safe_path(home, MARKER)
     if marker_path.exists():
         marker = load_marker(home)
+        require_current_source(marker)
         row = matching_service(marker, services(run))
         if row and marker["phase"] == "confirmed" and runtime_status(row) == "running":
+            require_current_source(marker)
             return {"status": "already_running", "service": row["name"]}
         raise ServiceError("An owned service operation is incomplete; use --off before starting again")
     # Validate settings and installed runtime before creating any service.
@@ -206,10 +261,12 @@ def _start_owned(home, *, run, python):
     if not safe_path(home, STATE + "/active.json").is_file():
         raise ServiceError("Active configuration ownership is required")
     root = Path(__file__).resolve().parents[1]
+    fingerprint = source_fingerprint(root)
     executable = "/usr/bin/env"
     # Services normally inherit the Sprite environment. Drop it explicitly;
     # isolated Python also ignores PYTHONPATH/user-site configuration.
     arguments = ["-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + str(home),
+                 CODE_ENV + fingerprint,
                  str(Path(python or sys.executable).absolute()), "-I",
                  str(root / "proxy/server.py"), "--config", str(config)]
     if any("," in value or "\n" in value for value in [executable, str(root), *arguments]):
@@ -221,7 +278,8 @@ def _start_owned(home, *, run, python):
     port_available()
     # Persist intent before the external operation. An uncertain create must not
     # be retried automatically or forgotten by configure --off.
-    marker = {"version": 1, "phase": "pending", "definition": definition}
+    marker = {"version": 1, "phase": "pending", "definition": definition,
+              "source_sha256": fingerprint}
     atomic_write(marker_path, json.dumps(marker).encode())
     run(["create", definition["name"], "--cmd", executable, "--args", ",".join(arguments),
          "--dir", str(root), "--no-stream"])
@@ -230,6 +288,7 @@ def _start_owned(home, *, run, python):
         raise ServiceError("Service creation is unconfirmed; ownership record retained for review")
     status = runtime_status(row)
     atomic_write(marker_path, json.dumps({**marker, "phase": "confirmed"}).encode())
+    require_current_source(marker)
     return {"status": "created", "service": definition["name"],
             "runtime_status": status,
             "live_agent_verified": False}

@@ -168,6 +168,10 @@ def worker(control):
         elif operation in agents.PINS:
             if agents.load_selection(Path.home(), (operation,)) != (plan["gateway"], plan["model"]):
                 raise SuiteError("configured_selection_mismatch")
+            if operation == "claude":
+                from proxy.service import ownership_lock, wait_ready
+                with ownership_lock(Path.home()):
+                    wait_ready(Path.home())
             options = argparse.Namespace(agents=operation, approve_agent_runs=True,
                                          approve_claude_fixture=operation == "claude", timeout=plan["agent_timeout"])
             find = lambda name: shutil.which(name, path=plan["agent_bin"] + os.pathsep + "/.sprite/bin:/usr/bin:/bin")
@@ -226,6 +230,9 @@ def bounded_json(stream):
 def transport(argv, *, timeout, capture=None):
     """Never persist or print stdout/stderr; capture output may contain secrets."""
     env = {k: os.environ[k] for k in ("PATH", "HOME", "SPRITE_TOKEN") if k in os.environ}
+    # A failed CLI Start may follow an ambiguous dispatch. Do not let its
+    # default startup retries repeat an operation the suite records only once.
+    env["SPRITE_EXEC_MAX_RETRIES"] = "1"
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env, start_new_session=True)
     deadline = time.monotonic() + timeout

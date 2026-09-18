@@ -11,7 +11,10 @@ Use a trusted host with Python 3.12+, toolkit dependencies and an authenticated
 `sprite` CLI. Both existing test Sprites need the reviewed, **clean Git checkout
 at the specified commit** and its virtual environment. The labeled Sprite needs
 the selected agents installed at the documented pins, configuration applied,
-and the owned Claude adapter already healthy. Use the normal
+and the owned Claude adapter already healthy and created from the current proxy
+sources. After updating the checkout, explicitly switch the old setup off before
+activating it again; a healthy old process is not proof of the updated code.
+Use the normal
 [`use-nebius` workflow](agent-setup.md) for that separately approved setup.
 
 Save a reviewed plan outside the repository; these are placeholders, not live
@@ -79,7 +82,10 @@ These flags record **separately obtained permission**, not permission grants:
 
 All remote operations also require `--approve-exec`. Agent timeouts and Claude's
 turn limit are **not** exact provider-request or spending caps. No retries are
-made. No service/policy/label changes are implicitly authorized by these flags.
+made: the transport explicitly sets `SPRITE_EXEC_MAX_RETRIES=1` instead of
+inheriting the CLI's default startup retries. A startup error can follow an
+ambiguous dispatch, so it is not safe to assume no remote work occurred.
+No service/policy/label changes are implicitly authorized by these flags.
 
 For example, **after approval for GET probes and remote execution only**:
 
@@ -104,6 +110,8 @@ do not assume killing the local CLI immediately cancels remote execution.
   isolated temporary homes, plus configured-route validation. Safety restrictions
   are seeded before configuration; no copied user plugins or real credentials.
   Temporary configuration is restored and directories removed after execution.
+  Before invoking Claude, the worker checks the owned service's current-source
+  binding and readiness. It never replaces or restarts a stale service itself.
 - V9: the specified 403 **and** gateway policy error. Independent no-dispatch
   tracing is optional extra assurance, not a new acceptance requirement.
 - S1/S2/S3 and GET-denial observations are retained separately. They do not prove
@@ -155,6 +163,14 @@ The named Playground remains dev-only. Production per-Sprite **Test** already
 executes `/models` from the Sprite when configured appropriately, but Scott's
 acceptance of that equivalence is still required. The suite does not silently
 substitute a CLI GET or mutate the spec.
+
+Production Test currently reports a status, message and latency, not the model
+list; its Custom API handler treats any upstream 2xx as success without
+validating the response body. A successful Test alone therefore cannot prove
+V4's **200 with model list**. Retain actual Playground evidence, or obtain an
+explicitly accepted alternative that also validates the model-list response
+from the same labeled Sprite and connector. Do not turn a generic Test success
+into a passing V4 ledger entry.
 
 `--v4-evidence` accepts this wrapper around the existing requirement-ledger
 format from [acceptance.md](acceptance.md):
