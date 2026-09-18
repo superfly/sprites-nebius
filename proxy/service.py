@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from contextlib import contextmanager
 import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
+import socket
 import sys
+import time
 import uuid
 
 if __package__ in (None, ""):
@@ -40,10 +43,10 @@ def ownership_lock(home, *, locked=False):
         yield
 
 
-def command(args):
+def command(args, *, timeout=30):
     try:
         result = subprocess.run(["sprite-env", "services", *args], capture_output=True,
-                                timeout=30, check=False)
+                                timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise ServiceError("Service operation failed or timed out; inspect the owned service before retrying") from None
     if result.returncode:
@@ -110,9 +113,76 @@ def runtime_status(row):
     return state["status"]
 
 
-def start_owned(home, *, run=command, python=None):
+def port_available():
+    """Refuse an existing listener before creating a new service; never evict it."""
+    try:
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 8083))
+    except OSError:
+        raise ServiceError("Loopback port 8083 is unavailable; no service created") from None
+
+
+async def _health(timeout):
+    # One overall deadline includes headers/body, even for a slow local peer.
+    import httpx
+    async with asyncio.timeout(timeout):
+        async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as client:
+            async with client.stream("GET", "http://127.0.0.1:8083/health") as response:
+                if response.status_code != 200:
+                    return False
+                body = bytearray()
+                async for chunk in response.aiter_raw():
+                    body.extend(chunk)
+                    if len(body) > 1024:
+                        return False
+                return json.loads(body) == {"status": "ok", "scope": "local adapter only"}
+
+
+def healthy(timeout):
+    import httpx
+    try:
+        return asyncio.run(_health(timeout))
+    except (OSError, TimeoutError, ValueError, httpx.HTTPError):
+        return False
+
+
+def wait_ready(home, *, run=command, timeout=10, probe=healthy):
+    """Check the exact owned service and local-only health within one deadline."""
+    deadline = time.monotonic() + timeout
+
+    def status_run(args):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ServiceError("Owned adapter did not become healthy before the deadline")
+        # Bound every production status read, including the post-health check.
+        return command(args, timeout=remaining) if run is command else run(args)
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ServiceError("Owned adapter did not become healthy before the deadline")
+        marker = load_marker(home)
+        if marker is None or marker["phase"] != "confirmed":
+            raise ServiceError("Owned service is not confirmed; retain state for inspection")
+        row = matching_service(marker, services(status_run))
+        if row is None or runtime_status(row) in ("stopped", "failed"):
+            raise ServiceError("Owned adapter exited before becoming healthy")
+        remaining = deadline - time.monotonic()
+        if remaining > 0 and runtime_status(row) == "running" and probe(min(0.5, remaining)):
+            if load_marker(home) != marker:
+                raise ServiceError("Service ownership changed during readiness")
+            row = matching_service(marker, services(status_run))
+            if row is None or runtime_status(row) != "running":
+                raise ServiceError("Owned adapter stopped during readiness")
+            if time.monotonic() < deadline:
+                return
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+
+
+def start_owned(home, *, run=command, python=None, locked=False):
     home = Path(home)
-    with ownership_lock(home):
+    with ownership_lock(home, locked=locked):
         return _start_owned(home, run=run, python=python)
 
 
@@ -148,6 +218,7 @@ def _start_owned(home, *, run, python):
                   "args": arguments, "dir": str(root), "env": {}, "needs": [], "http_port": None}
     if any(row.get("name") == definition["name"] for row in services(run)):
         raise ServiceError("Service name collision; nothing changed")
+    port_available()
     # Persist intent before the external operation. An uncertain create must not
     # be retried automatically or forgotten by configure --off.
     marker = {"version": 1, "phase": "pending", "definition": definition}
@@ -216,6 +287,10 @@ def main(argv=None):
         parser.error("Run this inside the intended Sprite")
     try:
         result = start_owned(Path.home()) if args.start else {"status": "off", "removed_owned_definition": stop_owned(Path.home())}
+        if args.start:
+            with ownership_lock(Path.home()):
+                wait_ready(Path.home())
+            result["ready"] = True
         print(json.dumps(result))
         return 0
     except (ServiceError, ConfigureError, OSError, ImportError, ValueError):

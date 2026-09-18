@@ -1,0 +1,81 @@
+# Source from Bash or Zsh. Only the owned placeholder is changed in this shell.
+if command -v __sprites_nebius_use >/dev/null 2>&1; then
+    printf '%s\n' 'Reserved activation helper name is already in use; no changes made.' >&2
+    return 1 2>/dev/null || exit 1
+fi
+__sprites_nebius_use() {
+    local nebius_script nebius_mode nebius_dry=0 nebius_arg nebius_root
+    if [ -n "${BASH_VERSION-}" ]; then
+        nebius_script=${BASH_SOURCE[0]}
+        if [ "$nebius_script" = "$0" ]; then
+            printf '%s\n' 'Source this helper: source scripts/use-nebius on|off [options]' >&2
+            return 1
+        fi
+    elif [ -n "${ZSH_VERSION-}" ]; then
+        case $ZSH_EVAL_CONTEXT in
+            *:file:*) nebius_script=${(%):-%x} ;;
+            *) printf '%s\n' 'Source this helper: source scripts/use-nebius on|off [options]' >&2; return 1 ;;
+        esac
+    else
+        printf '%s\n' 'This sourced helper supports Bash and Zsh only.' >&2
+        return 1
+    fi
+    case ${HOME-} in
+        /*) ;;
+        *) printf '%s\n' 'An absolute HOME is required; no changes made.' >&2; return 1 ;;
+    esac
+    nebius_mode=${1-}
+    case $nebius_mode in
+        on|off) shift ;;
+        *) printf '%s\n' 'Usage: source scripts/use-nebius on|off [--model ID] [--dry-run] [--approve-service-change]' >&2; return 1 ;;
+    esac
+    for nebius_arg in "$@"; do
+        case $nebius_arg in
+            --dry-run) nebius_dry=1 ;;
+            --off|--activate|--help|-h) printf '%s\n' 'Use on/off and scripts/configure --help for options.' >&2; return 1 ;;
+        esac
+    done
+    if [ "$nebius_dry" = 0 ]; then
+        if [ "$nebius_mode" = on ]; then
+            if [ "${SPRITES_NEBIUS_PLACEHOLDER+x}" = x ] && [ "$SPRITES_NEBIUS_PLACEHOLDER" != sprites-nebius-placeholder-not-a-secret ]; then
+                printf '%s\n' 'Refusing to replace the existing placeholder variable.' >&2
+                return 1
+            fi
+            if [ "${SPRITES_NEBIUS_OWNS_PLACEHOLDER-1}" != 1 ]; then
+                printf '%s\n' 'Conflicting shell ownership marker; no changes made.' >&2
+                return 1
+            fi
+            # A subshell detects readonly variables without mutating the caller.
+            (export SPRITES_NEBIUS_PLACEHOLDER=sprites-nebius-placeholder-not-a-secret &&
+             export SPRITES_NEBIUS_OWNS_PLACEHOLDER=1) 2>/dev/null || return 1
+        elif [ "${SPRITES_NEBIUS_OWNS_PLACEHOLDER-}" = 1 ] && [ "${SPRITES_NEBIUS_PLACEHOLDER-}" = sprites-nebius-placeholder-not-a-secret ]; then
+            (unset SPRITES_NEBIUS_PLACEHOLDER SPRITES_NEBIUS_OWNS_PLACEHOLDER) 2>/dev/null || return 1
+        fi
+    fi
+    nebius_root=$(cd -- "$(dirname -- "$nebius_script")/.." && pwd -P) || return 1
+    if [ "$nebius_mode" = off ]; then
+        "$nebius_root/.venv/bin/python" "$nebius_root/scripts/configure" --activate --off "$@" || return 1
+    else
+        "$nebius_root/.venv/bin/python" "$nebius_root/scripts/configure" --activate "$@" || return 1
+    fi
+    [ "$nebius_dry" = 0 ] || return 0
+    # Apply fixed semantics, not mutable generated shell code. Python has
+    # verified the owned configuration; never eval its output or source helpers
+    # that another local process could replace between verification and use.
+    if [ "$nebius_mode" = on ]; then
+        if [ "${SPRITES_NEBIUS_PLACEHOLDER+x}" != x ]; then
+            export SPRITES_NEBIUS_OWNS_PLACEHOLDER=1
+        fi
+        export SPRITES_NEBIUS_PLACEHOLDER=sprites-nebius-placeholder-not-a-secret
+    elif [ "${SPRITES_NEBIUS_OWNS_PLACEHOLDER-}" = 1 ] && [ "${SPRITES_NEBIUS_PLACEHOLDER-}" = sprites-nebius-placeholder-not-a-secret ]; then
+        unset SPRITES_NEBIUS_PLACEHOLDER SPRITES_NEBIUS_OWNS_PLACEHOLDER
+    fi
+}
+
+if __sprites_nebius_use "$@"; then
+    unset -f __sprites_nebius_use
+    return 0 2>/dev/null || exit 0
+else
+    unset -f __sprites_nebius_use
+    return 1 2>/dev/null || exit 1
+fi

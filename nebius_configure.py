@@ -490,6 +490,34 @@ def preflight(agents, environ, which):
                 raise ConfigureError("Existing Claude credentials must be removed by their owner first")
 
 
+def activate_service(home, state_dir, *, new_configuration):
+    """Called with the configuration lock held; roll back only this invocation."""
+    from proxy.service import ServiceError, load_marker, start_owned, stop_owned, wait_ready
+    try:
+        previous_marker = load_marker(home)
+    except (ServiceError, ConfigureError, OSError):
+        raise ConfigureError("Invalid service ownership; configuration retained for inspection") from None
+    try:
+        result = start_owned(home, locked=True)
+        wait_ready(home)
+        return {**result, "ready": True}
+    except (ServiceError, ConfigureError, OSError, ImportError, ValueError):
+        try:
+            marker = load_marker(home)
+            if previous_marker is None and marker is not None:
+                if marker["phase"] != "confirmed":
+                    raise ServiceError("Uncertain creation retained")
+                stop_owned(home, locked=True)
+            if new_configuration:
+                state = json.loads(read_file(state_dir / "active.json"))
+                transact(home, state_dir, restoration(home, state), None)
+        except (ServiceError, ConfigureError, OSError, ValueError, TypeError):
+            raise ConfigureError("Adapter activation failed; configuration and ownership evidence retained. "
+                                 "Inspect the owned service before running --off; no automatic retry") from None
+        message = "new configuration restored" if new_configuration else "previous configuration preserved"
+        raise ConfigureError("Adapter activation failed; " + message + "; shell not activated") from None
+
+
 def configure(args, *, home=None, environ=None, client=None, which=shutil.which, inside_sprite=None):
     home = Path.home() if home is None else Path(home)
     environ = os.environ if environ is None else environ
@@ -497,7 +525,18 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
         inside_sprite = Path("/.sprite").is_dir()
     if not inside_sprite:
         raise ConfigureError("Run configure inside the intended Sprite, not on your laptop")
+    activate = getattr(args, "activate", False)
+    selected_agents = getattr(args, "agents", None)
+    agents = tuple(selected_agents.split(",")) if selected_agents else AGENTS
+    if not args.off and (not agents or len(set(agents)) != len(agents) or any(agent not in AGENTS for agent in agents)):
+        raise ConfigureError("--agents must be a comma-separated selection of codex,opencode,pi,claude")
+    if activate and not args.off and not args.dry_run and not args.model:
+        raise ConfigureError("Activation requires an explicit --model; use --dry-run to list models first")
     state_dir = safe_path(home, STATE)
+    if activate and not args.dry_run and (
+        (not args.off and "claude" in agents) or read_file(safe_path(home, STATE + "/service-owned.json")) is not None
+    ) and not getattr(args, "approve_service_change", False):
+        raise ConfigureError("Activation service changes require --approve-service-change and prior authorization")
     if args.dry_run and (state_dir / "pending.json").exists():
         raise ConfigureError("Interrupted update needs recovery; run configure --off without --dry-run")
     if not args.dry_run:
@@ -518,8 +557,18 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
         if state is not None and (not isinstance(state, dict) or state.get("version") != 1
                                   or not isinstance(state.get("files"), list)):
             raise ConfigureError("Invalid ownership state; manual recovery required")
+        # Recheck under the lock: another setup may have created a service after
+        # the no-write preflight but before this invocation acquired ownership.
+        if (activate and not args.dry_run and not getattr(args, "approve_service_change", False)
+                and read_file(safe_path(home, STATE + "/service-owned.json")) is not None):
+            raise ConfigureError("Activation service changes require --approve-service-change and prior authorization")
         if args.off:
             if not state:
+                if read_file(safe_path(home, STATE + "/service-owned.json")) is not None:
+                    raise ConfigureError("Service ownership exists without configuration; inspect it before cleanup")
+                helper = read_file(safe_path(home, STATE + "/off.sh"))
+                if activate and helper not in (None, deactivation_shell().encode()):
+                    raise ConfigureError("Unowned deactivation helper changed; no shell changes allowed")
                 return {"status": "already_off", "full_spec_verified": False}
             files = restoration(home, state)
             prepare_transaction(files, None, raw_state)
@@ -534,9 +583,6 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
                 transact(home, state_dir, files, None)
             return {"status": "dry_run" if args.dry_run else "off", "paths": [f["path"] for f in files],
                     "source": str(state_dir / "off.sh"), "full_spec_verified": False}
-        agents = tuple(args.agents.split(",")) if args.agents else AGENTS
-        if not agents or len(set(agents)) != len(agents) or any(agent not in AGENTS for agent in agents):
-            raise ConfigureError("--agents must be a comma-separated selection of codex,opencode,pi,claude")
         preflight(agents, environ, which)
         client = Client() if client is None else client
         matches = [row["gateway_url"] for row in discover(client)[0]["connections"]]
@@ -557,7 +603,12 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
             assert_owned(home, state)
             if (state.get("agents"), state.get("gateway"), state.get("model")) != (list(agents), gateway, args.model):
                 raise ConfigureError("Use --off before changing the connector, agents, or model")
-            return {"status": "unchanged", "source": str(state_dir / "env.sh"), "full_spec_verified": False}
+            result = {"status": "unchanged", "source": str(state_dir / "env.sh"), "full_spec_verified": False}
+            if activate and not args.dry_run and "claude" in agents:
+                result["proxy_service"] = activate_service(home, state_dir, new_configuration=False)
+            return result
+        if activate and read_file(safe_path(home, STATE + "/service-owned.json")) is not None:
+            raise ConfigureError("Service ownership exists without configuration; inspect it before setup")
         files = plan_files(home, agents, gateway, args.model)
         new_state = {"version": 1, "agents": list(agents), "gateway": gateway, "model": args.model, "files": files}
         active_raw, _ = prepare_transaction(files, new_state, raw_state)
@@ -579,19 +630,25 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
                     if not path.exists():
                         atomic_write(path, unpacked(row["before"]))
             transact(home, state_dir, files, new_state)
+        service = "not_started; see proxy/README.md" if "claude" in agents else "not_selected"
+        if activate and "claude" in agents:
+            service = "would_start_and_check_health" if args.dry_run else activate_service(
+                home, state_dir, new_configuration=True)
         return {"status": "dry_run" if args.dry_run else "configured", "agents": agents,
                 "paths": [row["path"] for row in files], "source": str(state_dir / "env.sh"),
-                "proxy_service": "not_started; see proxy/README.md" if "claude" in agents else "not_selected",
+                "proxy_service": service,
                 "full_spec_verified": False}
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--model")
     parser.add_argument("--agents", help="Comma-separated installed agents; default: all four")
     parser.add_argument("--connector", help="Connection ID from gateway discovery")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--off", action="store_true")
+    parser.add_argument("--activate", action="store_true", help="Coordinate the owned service; use the sourced scripts/use-nebius wrapper")
+    parser.add_argument("--approve-service-change", action="store_true")
     args = parser.parse_args(argv)
     try:
         print(json.dumps(configure(args), indent=2))

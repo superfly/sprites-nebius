@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import io
 import json
 from pathlib import Path
@@ -36,7 +37,8 @@ class FakeClient:
 
 
 def options(**values):
-    defaults = dict(model=MODEL, agents=None, connector=None, dry_run=False, off=False)
+    defaults = dict(model=MODEL, agents=None, connector=None, dry_run=False, off=False,
+                    activate=False, approve_service_change=False)
     return argparse.Namespace(**{**defaults, **values})
 
 
@@ -417,6 +419,93 @@ class ConfigureTests(unittest.TestCase):
         result = subprocess.run(['sh', '-c', '. "$1"', 'sh', str(activation)],
                                 env={config.ENV_KEY:'user-owned-value'}, capture_output=True)
         self.assertEqual(result.returncode, 1)
+
+    def test_activation_requires_model_and_service_approval_before_writes(self):
+        for opts in ({'model': None}, {}, {'off': True}):
+            if opts.get('off'):
+                self.write(config.STATE + '/service-owned.json', '{}')
+            with self.subTest(opts=opts), self.assertRaises(config.ConfigureError):
+                self.run_config(activate=True, **opts)
+            self.assertFalse((self.home / '.codex').exists())
+
+    def test_activation_dry_run_never_starts_service(self):
+        with patch('proxy.service.start_owned') as start:
+            result = self.run_config(activate=True, dry_run=True)
+        self.assertEqual(result['proxy_service'], 'would_start_and_check_health')
+        start.assert_not_called()
+        self.assertEqual(list(self.home.iterdir()), [])
+
+    def test_activation_checks_health_under_same_lock(self):
+        with patch('proxy.service.start_owned', return_value={'status': 'created'}) as start, \
+                patch('proxy.service.wait_ready') as ready:
+            result = self.run_config(activate=True, approve_service_change=True)
+        start.assert_called_once_with(self.home, locked=True)
+        ready.assert_called_once_with(self.home)
+        self.assertTrue(result['proxy_service']['ready'])
+
+    def test_activation_failure_before_creation_restores_new_configuration(self):
+        from proxy.service import ServiceError
+        original = 'model="before"\n'
+        path = self.write('.codex/config.toml', original)
+        with patch('proxy.service.start_owned', side_effect=ServiceError('port occupied')):
+            with self.assertRaisesRegex(config.ConfigureError, 'new configuration restored'):
+                self.run_config(activate=True, approve_service_change=True)
+        self.assertEqual(path.read_text(), original)
+        self.assertFalse((self.home / config.STATE / 'active.json').exists())
+
+    def test_activation_failed_health_removes_only_new_service_and_restores(self):
+        from proxy import service
+        from test_service import Runtime
+        runtime = Runtime()
+        start = service.start_owned
+        stop = service.stop_owned
+        with patch.object(service, 'port_available'), \
+                patch.object(service, 'start_owned', side_effect=lambda home, **kw: start(home, run=runtime, **kw)), \
+                patch.object(service, 'stop_owned', side_effect=lambda home, **kw: stop(home, run=runtime, **kw)), \
+                patch.object(service, 'wait_ready', side_effect=service.ServiceError('timeout')):
+            with self.assertRaisesRegex(config.ConfigureError, 'new configuration restored'):
+                self.run_config(activate=True, approve_service_change=True)
+        self.assertEqual(runtime.rows, [])
+        self.assertFalse((self.home / config.STATE / 'active.json').exists())
+
+    def test_uncertain_creation_retains_configuration_and_journal(self):
+        from proxy import service
+        from test_service import Runtime
+        runtime = Runtime()
+        def uncertain(args):
+            if args[0] == 'create':
+                raise service.ServiceError('unknown result')
+            return runtime(args)
+        start = service.start_owned
+        with patch.object(service, 'port_available'), patch.object(service, 'start_owned',
+                side_effect=lambda home, **kw: start(home, run=uncertain, **kw)):
+            with self.assertRaisesRegex(config.ConfigureError, 'evidence retained'):
+                self.run_config(activate=True, approve_service_change=True)
+        self.assertTrue((self.home / config.STATE / 'active.json').exists())
+        self.assertEqual(service.load_marker(self.home)['phase'], 'pending')
+        self.assertFalse(any(call[0] in ('stop', 'delete') for call in runtime.calls))
+
+    def test_activation_failure_preserves_previous_configuration(self):
+        from proxy.service import ServiceError
+        self.run_config()
+        before = (self.home / config.STATE / 'active.json').read_bytes()
+        with patch('proxy.service.start_owned', side_effect=ServiceError('unhealthy')):
+            with self.assertRaisesRegex(config.ConfigureError, 'previous configuration preserved'):
+                self.run_config(activate=True, approve_service_change=True)
+        self.assertEqual((self.home / config.STATE / 'active.json').read_bytes(), before)
+
+    def test_already_off_does_not_source_changed_helper(self):
+        self.write(config.STATE + '/off.sh', 'echo unexpected\n')
+        with self.assertRaisesRegex(config.ConfigureError, 'deactivation helper changed'):
+            self.run_config(off=True, activate=True)
+
+    def test_cli_rejects_abbreviated_mutation_and_dry_run_options(self):
+        for argument in ('--dry-r', '--activ', '--of', '--approve-service-chang'):
+            with self.subTest(argument=argument), patch.object(config, 'configure') as configure, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                config.main([argument])
+            self.assertEqual(error.exception.code, 2)
+            configure.assert_not_called()
 
 
 if __name__ == '__main__':

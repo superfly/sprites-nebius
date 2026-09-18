@@ -4,6 +4,7 @@ import io
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -44,6 +45,9 @@ class ServiceTests(unittest.TestCase):
         atomic_write(self.state / "proxy.json", json.dumps(config).encode())
         atomic_write(self.state / "active.json", b"{}")
         self.run = Runtime()
+        self.port_patch = patch.object(service, 'port_available')
+        self.port_patch.start()
+        self.addCleanup(self.port_patch.stop)
 
     def test_owned_service_lifecycle_no_public_port_or_inference(self):
         result = service.start_owned(self.home, run=self.run)
@@ -153,6 +157,87 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 service.main(["--start"])
             start.assert_not_called()
+
+    def test_start_can_reuse_configuration_lock(self):
+        with service.ownership_lock(self.home), patch.object(service, 'ownership_lock', wraps=service.ownership_lock) as lock:
+            service.start_owned(self.home, run=self.run, locked=True)
+        lock.assert_called_once_with(self.home, locked=True)
+
+    def test_port_collision_prevents_service_creation(self):
+        with patch.object(service, 'port_available', side_effect=service.ServiceError('occupied')):
+            with self.assertRaises(service.ServiceError):
+                service.start_owned(self.home, run=self.run)
+        self.assertFalse(any(call[0] == 'create' for call in self.run.calls))
+        self.assertFalse((self.state / 'service-owned.json').exists())
+
+    def test_readiness_requires_health_and_matching_running_definition(self):
+        service.start_owned(self.home, run=self.run)
+        probes = []
+        service.wait_ready(self.home, run=self.run, probe=lambda timeout: probes.append(timeout) or True)
+        self.assertTrue(probes)
+        self.assertLessEqual(probes[0], 0.5)
+        self.run.rows[0]['cmd'] = '/other/process'
+        with self.assertRaises(service.ServiceError):
+            service.wait_ready(self.home, run=self.run, probe=lambda _: self.fail('must not probe'))
+
+    def test_readiness_failed_state_and_timeout(self):
+        service.start_owned(self.home, run=self.run)
+        start = time.monotonic()
+        with self.assertRaisesRegex(service.ServiceError, 'deadline'):
+            service.wait_ready(self.home, run=self.run, timeout=0.02, probe=lambda _: False)
+        self.assertLess(time.monotonic() - start, 0.5)
+        self.run.rows[0]['state']['status'] = 'failed'
+        with self.assertRaisesRegex(service.ServiceError, 'exited'):
+            service.wait_ready(self.home, run=self.run, probe=lambda _: self.fail('must not probe'))
+
+    def test_readiness_rechecks_identity_and_running_state_after_health(self):
+        service.start_owned(self.home, run=self.run)
+        original = dict(self.run.rows[0])
+        for mutation in ('definition', 'state'):
+            self.run.rows[0] = {**original, 'state': {'status': 'running'}}
+            def probe(_):
+                if mutation == 'definition':
+                    self.run.rows[0]['cmd'] = '/replacement'
+                else:
+                    self.run.rows[0]['state']['status'] = 'failed'
+                return True
+            with self.subTest(mutation=mutation), self.assertRaises(service.ServiceError):
+                service.wait_ready(self.home, run=self.run, probe=probe)
+
+    def test_health_disables_proxies_redirects_and_bounds_body(self):
+        import asyncio
+        import httpx
+        original = httpx.AsyncClient
+        for payload, status, expected in ((b'{"status":"ok","scope":"local adapter only"}', 200, True),
+                                          (b'{}', 200, False), (b'x' * 1025, 200, False),
+                                          (b'', 302, False)):
+            def client(**kwargs):
+                self.assertFalse(kwargs['trust_env'])
+                self.assertFalse(kwargs['follow_redirects'])
+                def respond(request):
+                    self.assertEqual(str(request.url), 'http://127.0.0.1:8083/health')
+                    self.assertEqual(request.method, 'GET')
+                    return httpx.Response(status, stream=httpx.ByteStream(payload))
+                return original(**kwargs, transport=httpx.MockTransport(respond))
+            with self.subTest(status=status, payload=len(payload)), patch('httpx.AsyncClient', side_effect=client):
+                self.assertEqual(asyncio.run(service._health(0.5)), expected)
+
+    def test_health_deadline_covers_slow_body(self):
+        import asyncio
+        import httpx
+        original = httpx.AsyncClient
+        class SlowBody(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{'
+                await asyncio.sleep(1)
+                yield b'}'
+        def client(**kwargs):
+            return original(**kwargs, transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, stream=SlowBody())))
+        start = time.monotonic()
+        with patch('httpx.AsyncClient', side_effect=client):
+            self.assertFalse(service.healthy(0.02))
+        self.assertLess(time.monotonic() - start, 0.5)
 
 
 if __name__ == "__main__":

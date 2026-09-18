@@ -33,36 +33,47 @@ They read gateway discovery and the model list but do not send inference.
    With multiple matching Nebius connectors, add
    `--connector CONNECTION_ID`; there is no implicit first-match selection.
 
-2. Copy an exact model ID from the discovery result, review the dry run, then
-   apply the same selection:
+2. Copy an exact model ID from discovery. In **Bash or Zsh**, review the dry run,
+   then enable the same selection with one sourced command:
 
    ```sh
-   .venv/bin/python scripts/configure --model 'MODEL_ID_FROM_DISCOVERY' --dry-run
-   .venv/bin/python scripts/configure --model 'MODEL_ID_FROM_DISCOVERY'
-   . "$HOME/.local/state/sprites-nebius/env.sh"
+   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --dry-run
+   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
    ```
 
    Replace the example model ID; retain any `--agents` or `--connector` flags
-   you selected above. The source step is necessary in each shell that launches
-   the native agents: a child configuration process cannot update its parent's
-   environment. It exports only `SPRITES_NEBIUS_PLACEHOLDER`, refuses to replace
-   another value, and never changes shell startup files. Do not substitute a
+   you selected above. Source the helper in each shell that launches native
+   agents: a child Python process cannot update its parent's environment.
+   It configures the selected agents, starts and checks the owned Claude service
+   when selected, and only then exports the harmless placeholder and its shell
+   ownership marker. It refuses conflicting or readonly shell variables and
+   never changes shell startup files, PATH, the working directory or shell options.
+   It applies fixed placeholder exports directly, without sourcing generated
+   helper files or evaluating Python output. Option names must be written in full.
+   A pre-existing placeholder is not claimed or removed. Do not substitute a
    real key. Discovery proves a model exists, not that it supports an agent's
    reasoning, context limits, tools, or wire protocol. See the narrowly tested
    agent/model matrix in [the checklist](status.md).
 
-3. If Claude was selected, start its owned loopback service **only after service
-   creation is authorized**:
+   The approval flag is required for actual Claude service changes, not for a
+   dry run or a non-Claude selection. It records intent, not permission: obtain
+   service-creation authority first. Readiness checks only local `/health`, for
+   at most ten seconds after creation, and cannot spend inference. Another
+   listener on port 8083 is never stopped or replaced. The service binds only
+   `127.0.0.1:8083`; never expose it through a public HTTP service port.
 
-   ```sh
-   .venv/bin/python proxy/service.py --start --approve-service-change
-   ```
+   A confirmed newly created service that fails readiness is removed, and new
+   configuration is restored. Pre-existing configuration/services are preserved.
+   Uncertain creation or cleanup retains private ownership/recovery state and
+   fails without activating the shell; inspect it before retrying or switching
+   off. No creation is retried automatically. Repeat successful `on` is idempotent.
+   Local readiness is not Claude tool-task acceptance. See
+   [proxy behavior and limits](../proxy/README.md).
 
-   Configuration does not start this service automatically. The service uses
-   this Python interpreter and the private generated `proxy.json`. It binds
-   only `127.0.0.1:8083`; do not add an HTTP service port or expose the listener
-   through a public URL. A created or running service is not evidence that
-   Claude's multi-turn task passes. See [proxy behavior and limits](../proxy/README.md).
+The low-level `.venv/bin/python scripts/configure` remains available for
+configuration-only automation and does not start services unless explicitly
+passed `--activate`. Its `source` output names the helper needed to update the
+current shell; prefer `scripts/use-nebius` for ordinary interactive use.
 
 Stop here unless agent execution and its spending are separately authorized.
 Agent prompts and tool loops can make several billable requests, even when
@@ -142,17 +153,18 @@ project provider overrides, hooks, or unrelated extensions.
 Use the same checkout and user account:
 
 ```sh
-.venv/bin/python scripts/configure --off --dry-run
-.venv/bin/python scripts/configure --off
-. "$HOME/.local/state/sprites-nebius/off.sh"
+source scripts/use-nebius off --dry-run
+source scripts/use-nebius off --approve-service-change
 ```
 
-`--off` verifies all owned fields before changing anything. It stops and deletes
+`off` verifies all owned fields before changing anything. It stops and deletes
 only the exact service definition recorded by this setup, retaining runtime
 logs; arbitrary foreground processes and services created by another method
 are not owned. Stop those separately before considering the proxy disabled.
 If the owned service cannot be safely verified or stopped, configuration is
-left in place and the command fails. Dry run never stops a service.
+left in place and the command fails; shell variables are untouched. Dry run
+never stops a service or changes the shell. On success, the sourced helper
+removes only the placeholder it introduced; user-changed values are preserved.
 
 Untouched files restore exactly. If unrelated fields changed later, restoration
 reverses only owned fields and retains those changes. If an owned field or

@@ -29,10 +29,16 @@ For a managed service, use the same environment that has both runtime and
 configuration dependencies installed (see [agent setup](../docs/agent-setup.md)):
 
 ```sh
-.venv/bin/python proxy/service.py --start --approve-service-change
-.venv/bin/python scripts/configure --off
-. "$HOME/.local/state/sprites-nebius/off.sh"
+source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
+source scripts/use-nebius off --approve-service-change
 ```
+
+The sourced Bash/Zsh helper configures the selected agents, creates the service,
+checks local readiness, then activates the current shell. It supports `--dry-run`
+without any service or shell mutation. For service-only diagnostics after
+configuration, `.venv/bin/python proxy/service.py --start --approve-service-change`
+also waits for readiness but does not activate shell variables or roll back
+configuration on failure.
 
 The service has a unique name and a private ownership record. Start, stop and
 configuration restoration share a lock. Restoration validates unchanged owned
@@ -40,6 +46,16 @@ settings, then stops and removes only the matching service definition; runtime
 logs remain. An uncertain create is never automatically retried or forgotten.
 The launcher uses an empty environment and isolated Python, with only PATH and
 HOME supplied. It never sets `--http-port`.
+
+Readiness requires the unchanged owned definition to be running and its fixed
+loopback `/health` endpoint to respond, within ten seconds after creation. No
+redirects, inherited HTTP proxies, or inference requests are used. Port 8083
+must be free before a new service is created; another listener is never evicted.
+If activation creates a confirmed service but readiness fails, only that new
+service is removed and configuration newly written by the invocation is restored.
+Existing setups are preserved. If creation or cleanup is uncertain, state remains
+for manual inspection and the shell is not activated; use the explicit off path
+only after checking the retained ownership record.
 
 Definition comparison and the runtime's name-based stop/delete API are separate
 operations, not an atomic conditional delete. Unique names and local locking
