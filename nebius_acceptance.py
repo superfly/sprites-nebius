@@ -251,10 +251,10 @@ def _reconcile(document):
     if (billing.get("source") != "nebius-billing-usage" or billing.get("view") != "full-numbers"
             or billing.get("precision") != "exact" or not _digest(billing.get("artifact_sha256"))):
         raise EvidenceError("non_authoritative_or_rounded_billing")
-    if (billing.get("isolated") is not True
-            or mode == "request-set" and billing.get("settled") is not True
-            or "settled" in billing and billing["settled"] is not True):
-        raise EvidenceError("unsettled_or_unrelated_billing")
+    # V10 compares observed token usage, not finalized invoices. Legacy
+    # "settled" metadata is irrelevant; scope and freshness remain required.
+    if billing.get("isolated") is not True:
+        raise EvidenceError("unrelated_billing")
     if (billing.get("project_id") != scope["project_id"] or billing.get("model") != scope["model"]
             or _window(billing) != window):
         raise EvidenceError("billing_scope_mismatch")

@@ -48,7 +48,13 @@ this is an evidence assessment, not a fresh end-to-end test or security sign-off
 Record manual review, independent admin setup, publication, and outreach only
 after those activities actually happen with their necessary authorization.
 
-## V10: attributable usage versus authoritative billing
+## V10: attributable usage versus the Nebius console
+
+This BYOK integration does not invoice or collect Nebius payments. V10 compares
+recorded token usage with the customer's Nebius console, within 5%; it does not
+certify financial settlement. The legacy `billing.settled` field is ignored in
+both modes. Matching source scope, complete counts and actual data freshness
+are still required; an unsettled invoice does not imply stale token data.
 
 ```sh
 python3 scripts/acceptance reconcile /private/path/reconciliation.json
@@ -71,16 +77,16 @@ python3 scripts/acceptance reconcile /private/path/reconciliation.json
 4. Confirm there was no unrelated project traffic in the selected window and no
    omitted requests. If the console only offers whole UTC days, use the
    whole-day mode below instead of pretending it displays a short test interval.
-   Rounded, known-unsettled, stale, unknown-coverage or mixed-scope evidence is
+   Rounded, stale, unknown-coverage or mixed-scope evidence is
    inconclusive. Never infer zero from an absent usage field or invent a
-   `settled` flag, data watermark, independent server count, or isolation fact.
+   data watermark, independent server count, or isolation fact.
 
 ### Existing exact request-set mode
 
 The original schema remains supported (`scope.accounting_mode` defaults to
-`request-set`). It requires an exact expected request set, an actually verified
-`billing.settled: true`, and matching source coverage. Keep this mode for sources
-that can truthfully establish those facts. The JSON input has these fields:
+`request-set`). It requires an exact expected request set and matching source
+coverage, not a final invoice or settlement assertion. Keep this mode for
+sources that can truthfully establish that coverage. The JSON input has these fields:
 
 ```json
 {
@@ -101,7 +107,7 @@ that can truthfully establish those facts. The JSON input has these fields:
   },
   "billing": {
     "source": "nebius-billing-usage", "view": "full-numbers",
-    "precision": "exact", "settled": true, "isolated": true,
+    "precision": "exact", "isolated": true,
     "project_id": "project-example", "model": "org/model",
     "started_at": "2026-09-16T01:00:00Z",
     "finished_at": "2026-09-16T01:02:00Z",
@@ -152,11 +158,10 @@ Start from the schema above and make these changes:
 - Request a **staff-assisted** gateway export with the metadata below. The
   existing customer `/connections/:id/usage` endpoint excludes Custom API
   connections; no private customer export API is assumed.
-- Remove `billing.settled` if the source does not actually expose or establish
-  settlement. Whole-day mode instead requires a closed day and actual recorded
+- Whole-day mode requires a closed day and actual recorded
   `data_through` coverage at or after its end, collected after that watermark.
-  An explicitly false/unknown `settled` field cannot pass. The output does not
-  claim final invoicing or promise that provider billing will never be revised.
+  The output does not claim final invoicing or promise that provider billing
+  will never be revised.
   If source freshness is unknown, **do not substitute the browser refresh time**:
   reconciliation remains inconclusive, even after waiting or seeing equal totals.
 

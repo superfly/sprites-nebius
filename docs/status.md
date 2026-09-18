@@ -81,7 +81,7 @@ is consumed; further live invocations need fresh approval.
 | V5–V7 | Fresh scoped exact-OK checks passed at `b880115` |
 | V8 | Fresh confined edit/test task, five stream deltas and independent test passed at `b880115` |
 | V9 | Fresh single empty POST `/files` at 01:58:53 UTC returned 403 with the expected gateway policy error; independent no-dispatch tracing is optional |
-| V10 | Gateway: 27,100 input / 262 output tokens, exactly matching the recorded provider day view (0% difference). Project binding, aligned accounting windows and completeness/settlement still need confirmation |
+| V10 | Gateway: 27,100 input / 262 output tokens, exactly matching the recorded provider day view (0% difference). Project binding, aligned accounting windows and complete usage coverage still need confirmation; financial settlement is not required |
 
 ## Current state
 

@@ -46,7 +46,7 @@ def reconciliation():
                         "project_id": scope["project_id"], "model": scope["model"],
                         "started_at": START, "finished_at": FINISH,
                         "collected_at": FINISH, "data_through": FINISH,
-                        "settled": True, "isolated": True, "unit": "tokens",
+                        "isolated": True, "unit": "tokens",
                         "input_count": 100, "output_count": 200}}
 
 
@@ -65,7 +65,6 @@ def day_reconciliation():
     document["billing"].update(started_at=scope["started_at"], finished_at=scope["finished_at"],
                                collected_at="2026-09-17T02:00:00Z",
                                data_through="2026-09-17T01:00:00Z")
-    del document["billing"]["settled"]
     return document
 
 
@@ -222,7 +221,7 @@ class ReconciliationTests(unittest.TestCase):
                                   ("scope", "isolation_sha256", None),
                                   ("scope", "isolated", False), ("billing", "isolated", False),
                                   ("billing", "data_through", FINISH),
-                                  ("billing", "data_through", None), ("billing", "settled", False)):
+                                  ("billing", "data_through", None)):
             document = day_reconciliation()
             document[group][key] = value
             with self.subTest(group=group, key=key):
@@ -259,9 +258,24 @@ class ReconciliationTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
 
-    def test_non_authoritative_unsettled_rounded_billing_inconclusive(self):
+    def test_usage_comparison_does_not_require_financial_settlement(self):
+        for fixture in (reconciliation, day_reconciliation):
+            self.assertEqual(acceptance.reconcile(fixture())["status"], "pass")
+            for settled in (True, False, None):
+                with self.subTest(mode=fixture.__name__, settled=settled):
+                    document = fixture()
+                    document["billing"]["settled"] = settled
+                    result = acceptance.reconcile(document)
+                    self.assertEqual(result["status"], "pass")
+                    self.assertFalse(result["full_spec_verified"])
+                    document["billing"]["input_count"] = 200
+                    self.assertEqual(acceptance.reconcile(document)["status"], "fail")
+                    document["billing"]["data_through"] = START
+                    self.assertEqual(acceptance.reconcile(document)["reason"], "stale_billing_evidence")
+
+    def test_non_authoritative_rounded_billing_inconclusive(self):
         for key, value in (("source", "observability"), ("view", "chart"), ("precision", "rounded"),
-                           ("settled", False), ("isolated", False), ("artifact_sha256", "bad"),
+                           ("isolated", False), ("artifact_sha256", "bad"),
                            ("model", "other"), ("project_id", "other"),
                            ("finished_at", "2026-09-16T01:03:00Z")):
             document = reconciliation()
