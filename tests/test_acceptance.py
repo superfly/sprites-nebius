@@ -50,6 +50,25 @@ def reconciliation():
                         "input_count": 100, "output_count": 200}}
 
 
+def day_reconciliation():
+    document = reconciliation()
+    scope = document["scope"]
+    scope.update(accounting_mode="utc-day", started_at="2026-09-16T00:00:00Z",
+                 finished_at="2026-09-17T00:00:00Z", isolation_sha256=DIGEST)
+    del scope["request_ids"]
+    document["gateway"]["export"] = {
+        **{key: scope[key] for key in ("connector_id", "sprite_id", "org_id", "provider",
+                                      "model", "started_at", "finished_at")},
+        "server_count": 2, "truncated": False, "query_sha256": DIGEST,
+        "window_basis": "overlapping-requests", "collected_at": "2026-09-17T02:00:00Z",
+        "data_through": "2026-09-17T01:00:00Z"}
+    document["billing"].update(started_at=scope["started_at"], finished_at=scope["finished_at"],
+                               collected_at="2026-09-17T02:00:00Z",
+                               data_through="2026-09-17T01:00:00Z")
+    del document["billing"]["settled"]
+    return document
+
+
 class LedgerTests(unittest.TestCase):
     def ledger(self, entries):
         return acceptance.ledger({"tested_revision": REVISION, "entries": entries})
@@ -143,10 +162,11 @@ class ReconciliationTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
 
-    def test_unknown_partial_and_mixed_scope_records_inconclusive(self):
+    def test_unknown_and_mixed_scope_records_inconclusive(self):
         mutations = (("input_count", None), ("output_count", True), ("input_count", -1),
                      ("input_count", "50"), ("input_count", 2**64), ("usage_known", False),
-                     ("outcome", "incomplete"), ("outcome", "client_closed"), ("status", 499),
+                     ("input_count", float("nan")), ("input_count", float("inf")),
+                     ("outcome", None), ("status", 600),
                      ("status", True), ("unit", "requests"), ("event", "other"),
                      ("sprite_id", "other"), ("connector_id", "other"), ("model", "other"),
                      ("org_id", "other"), ("provider", "other"), ("request_id", None),
@@ -157,6 +177,86 @@ class ReconciliationTests(unittest.TestCase):
             document = reconciliation()
             document["gateway"]["records"][0][key] = value
             with self.subTest(key=key, value=value):
+                self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
+
+    def test_known_usage_on_unsuccessful_requests_is_counted_not_dropped(self):
+        for outcome, status in (("error", 500), ("interrupted", 200), ("incomplete", 200),
+                                ("client_closed", 499), ("upstream_error", 502)):
+            document = reconciliation()
+            document["gateway"]["records"][0].update(outcome=outcome, status=status)
+            with self.subTest(outcome=outcome):
+                result = acceptance.reconcile(document)
+                self.assertEqual(result["status"], "pass")
+                self.assertEqual(result["noncompleted_request_count"], 1)
+                self.assertEqual(result["counts"]["input_count"]["gateway"], 100)
+                document["gateway"]["records"][0]["usage_known"] = False
+                self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
+
+    def test_complete_utc_day_needs_no_fabricated_settled_flag_or_client_request_set(self):
+        result = acceptance.reconcile(day_reconciliation())
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["accounting_mode"], "utc-day")
+        self.assertEqual(result["request_count"], 2)
+        self.assertEqual(len(result["evidence"]), 5)
+
+    def test_day_export_scope_count_and_coverage_cannot_be_assumed(self):
+        changes = (("server_count", None), ("server_count", 1), ("server_count", 3),
+                   ("server_count", 2.0), ("server_count", True), ("server_count", float("inf")),
+                   ("truncated", True), ("truncated", None), ("query_sha256", None),
+                   ("window_basis", "started-in-window"), ("model", "another-model"),
+                   ("sprite_id", "another-sprite"), ("connector_id", "another-connector"),
+                   ("org_id", 456), ("provider", "another-provider"),
+                   ("started_at", START), ("finished_at", FINISH),
+                   ("collected_at", FINISH), ("data_through", FINISH), ("data_through", None))
+        for key, value in changes:
+            document = day_reconciliation()
+            document["gateway"]["export"][key] = value
+            with self.subTest(key=key, value=value):
+                self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
+        document = day_reconciliation()
+        del document["gateway"]["export"]
+        self.assertEqual(acceptance.reconcile(document)["reason"], "missing_scoped_gateway_export")
+
+    def test_day_mode_requires_binding_isolation_and_real_billing_freshness(self):
+        for group, key, value in (("scope", "project_binding_sha256", None),
+                                  ("scope", "isolation_sha256", None),
+                                  ("scope", "isolated", False), ("billing", "isolated", False),
+                                  ("billing", "data_through", FINISH),
+                                  ("billing", "data_through", None), ("billing", "settled", False)):
+            document = day_reconciliation()
+            document[group][key] = value
+            with self.subTest(group=group, key=key):
+                self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
+
+    def test_day_must_be_exact_closed_utc_midnight_window(self):
+        for start, finish in ((START, FINISH), (START, "2026-09-17T01:00:00Z"),
+                              ("2026-09-16T00:00:00Z", "2026-09-18T00:00:00Z"),
+                              ("2999-09-16T00:00:00Z", "2999-09-17T00:00:00Z")):
+            document = day_reconciliation()
+            document["scope"].update(started_at=start, finished_at=finish)
+            with self.subTest(start=start, finish=finish):
+                self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
+
+    def test_day_cannot_assign_a_request_that_crosses_midnight(self):
+        for key, value in (("started_at", "2026-09-15T23:59:59Z"),
+                           ("finished_at", "2026-09-17T00:00:00Z"),
+                           ("finished_at", "2026-09-17T00:00:01Z")):
+            document = day_reconciliation()
+            document["gateway"]["records"][0][key] = value
+            with self.subTest(key=key):
+                self.assertEqual(acceptance.reconcile(document)["reason"],
+                                 "gateway_request_crosses_midnight")
+
+    def test_day_duplicates_omissions_and_optional_expected_set_are_checked(self):
+        for change in ("duplicate", "missing", "expected-mismatch"):
+            document = day_reconciliation()
+            if change == "duplicate":
+                document["gateway"]["records"].append(copy.deepcopy(document["gateway"]["records"][0]))
+            elif change == "missing":
+                document["gateway"]["records"].pop()
+            else:
+                document["scope"]["request_ids"] = ["not-the-exported-requests"]
+            with self.subTest(change=change):
                 self.assertEqual(acceptance.reconcile(document)["status"], "inconclusive")
 
     def test_non_authoritative_unsettled_rounded_billing_inconclusive(self):
@@ -231,7 +331,7 @@ class FileAndCliTests(unittest.TestCase):
         self.assertNotIn("PRIVATE-CREDENTIAL", json.dumps(result))
 
     def test_duplicate_keys_and_nonfinite_json_are_rejected(self):
-        for text in ('{"x": 1, "x": 2}', '{"x": NaN}', '{"x": Infinity}'):
+        for text in ('{"x": 1, "x": 2}', '{"x": NaN}', '{"x": Infinity}', '{"x": 1e999}'):
             with self.subTest(text=text):
                 self.assertEqual(self.run_cli(text)[0], 1)
 

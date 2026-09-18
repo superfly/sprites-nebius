@@ -57,21 +57,30 @@ python3 scripts/acceptance reconcile /private/path/reconciliation.json
 1. Identify one dedicated Nebius project, model, connector, Sprite, and isolated
    UTC window. Verify which project owns the connector's key without reading or
    exporting that key. Keep a sanitized binding artifact and its SHA-256 digest.
+   Retain evidence of project isolation, not just a claim that the Sprite was
+   isolated: another user or key in that project could produce billable traffic.
 2. Record every expected gateway inference `request_id`, including requests that
    fail or disconnect. Export the gateway's `gateway_inference_usage` records
    for the entire scope/window. Do not substitute token usage from the client
    responses: that is useful corroboration, not gateway attribution.
-3. After billing settles, use **Nebius Token Factory → Billing → Usage → Full
+3. When source coverage is known, use **Nebius Token Factory → Billing → Usage → Full
    numbers** for the same project/model/window. Retain a private screenshot or
    export with collection time. Operational observability charts are not the
    authoritative billing source. A display last refreshed before the test is
    stale, even if its numbers happen to match.
 4. Confirm there was no unrelated project traffic in the selected window and no
-   omitted requests. If the console cannot express that exact window or usage
-   is rounded, unsettled, or mixed with other traffic, keep V10 inconclusive.
-   Never infer zero from an absent usage field.
+   omitted requests. If the console only offers whole UTC days, use the
+   whole-day mode below instead of pretending it displays a short test interval.
+   Rounded, known-unsettled, stale, unknown-coverage or mixed-scope evidence is
+   inconclusive. Never infer zero from an absent usage field or invent a
+   `settled` flag, data watermark, independent server count, or isolation fact.
 
-The JSON input has these fields:
+### Existing exact request-set mode
+
+The original schema remains supported (`scope.accounting_mode` defaults to
+`request-set`). It requires an exact expected request set, an actually verified
+`billing.settled: true`, and matching source coverage. Keep this mode for sources
+that can truthfully establish those facts. The JSON input has these fields:
 
 ```json
 {
@@ -108,17 +117,93 @@ Replace examples with actual observations. The empty `records` array above
 **cannot pass**. Each gateway record must contain `event` equal to
 `gateway_inference_usage`, `request_id`, `connector_id`, `sprite_id`, `org_id`,
 `provider`, `model`, `started_at`, `finished_at`, integer HTTP `status`,
-`outcome: "completed"`, `usage_known: true`, `unit: "tokens"`, and nonnegative
+nonempty machine-readable `outcome`, `usage_known: true`, `unit: "tokens"`, and nonnegative
 integer `input_count` and `output_count`. Preserve the gateway's integer org ID.
 Billing `data_through` records the console's actual data freshness, not the
 browser refresh time. It must cover the complete test window, and `collected_at`
 cannot precede it. Unknown freshness is inconclusive even with matching totals.
 
 The exact expected request set must be present once each. Missing, extra,
-duplicate (even identical), conflicting, cross-scope, partial, failed, or
-unknown-usage records make reconciliation inconclusive rather than silently
-changing the total. Investigate duplicates at their source and produce a
-reviewed, complete export; do not cherry-pick the favorable record.
+duplicate (even identical), conflicting, cross-scope or unknown-usage records
+make reconciliation inconclusive rather than silently changing the total.
+**Include failed and disconnected requests when the gateway recorded known
+usage**: they may still be billed. `noncompleted_request_count` discloses how
+many were included; a billing match does not make those requests successful.
+Unknown usage on even one request remains inconclusive. Investigate duplicates
+at their source and produce a reviewed, complete export; do not cherry-pick the
+favorable record.
+
+### Whole-UTC-day mode
+
+Set `scope.accounting_mode` to `utc-day` when the authoritative console's useful
+granularity is one UTC day. Both `scope` and `billing` must span exactly one
+closed midnight-to-midnight UTC day, e.g. `[2026-09-16T00:00:00Z,
+2026-09-17T00:00:00Z)`. This is an alternative completeness model, not permission
+to widen a narrow export or relabel its window.
+
+Start from the schema above and make these changes:
+
+- Set both windows to the same whole day and add `scope.accounting_mode:
+  "utc-day"` plus `scope.isolation_sha256`, the digest of reviewed project-wide
+  isolation evidence covering that entire day. Keep the project-binding digest
+  and both `isolated` attestations.
+- `scope.request_ids` becomes optional. If present, it is still checked exactly;
+  do not derive a supposedly independent expected set from the exported rows.
+- Request a **staff-assisted** gateway export with the metadata below. The
+  existing customer `/connections/:id/usage` endpoint excludes Custom API
+  connections; no private customer export API is assumed.
+- Remove `billing.settled` if the source does not actually expose or establish
+  settlement. Whole-day mode instead requires a closed day and actual recorded
+  `data_through` coverage at or after its end, collected after that watermark.
+  An explicitly false/unknown `settled` field cannot pass. The output does not
+  claim final invoicing or promise that provider billing will never be revised.
+  If source freshness is unknown, **do not substitute the browser refresh time**:
+  reconciliation remains inconclusive, even after waiting or seeing equal totals.
+
+Add this `gateway.export` metadata, filled with observed values rather than the
+example identifiers/digests:
+
+```json
+{
+  "connector_id": "connector-example", "sprite_id": "sprite-example",
+  "org_id": 123, "provider": "custom_api", "model": "org/model",
+  "started_at": "2026-09-16T00:00:00Z",
+  "finished_at": "2026-09-17T00:00:00Z",
+  "window_basis": "overlapping-requests",
+  "server_count": 12,
+  "truncated": false,
+  "data_through": "2026-09-17T01:00:00Z",
+  "collected_at": "2026-09-17T01:05:00Z",
+  "query_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
+```
+
+The retained query/coverage artifact must show the exact identity filters and
+window, source freshness, pagination/limit handling, and an independent
+server-side count for the same query. Count all matching gateway observations,
+not just completed/2xx requests. `server_count` must equal the number of uniquely
+identified records in the complete export; duplicate IDs, truncation, missing
+pages and count disagreement are inconclusive. The accepted bound is 10,000
+records; a larger day requires a reviewed workflow change, not truncation.
+
+Query requests **overlapping** the day, not merely those starting inside it
+(`started_at < day_end` and `finished_at >= day_start`). Inspect neighbouring
+boundary evidence as necessary. A request crossing either UTC midnight makes
+this simple one-day reconciliation inconclusive (including a request finishing
+exactly at the next midnight): it cannot safely assign tokens to a provider
+billing day. Do not discard the boundary request or guess its
+allocation. Absent/incomplete observations cannot be declared complete merely
+because the returned rows equal a query count; coverage and isolation remain
+reviewed evidence prerequisites.
+
+The gateway export needs its own actual `data_through` and `collected_at`, not a
+watermark copied from Nebius. Both systems must cover the entire accounting
+window. Binding, isolation, source coverage and exact billing precision are
+still required even if input/output totals match exactly. A whole-day comparison
+is not a fresh test of the current harness revision: retain the revisions and
+provenance of the requests it accounts for in the reviewed evidence.
+
+### Numeric comparison (both modes)
 
 For an **exact** display in millions, use `unit: "million-tokens"` and decimal
 strings such as `"0.000023"`, not floating-point numbers. Conversion must yield
@@ -142,13 +227,16 @@ symlinks and group/world-accessible files. It reads only the explicitly supplied
 key file and capture paths. It never enumerates the host filesystem, sends the
 key anywhere, prints paths, prints matching text, or emits a key hash.
 
-Capture orchestration is deliberately not implemented yet. Before collecting
-anything, obtain authorization for reading the Sprite's filesystem and all
-process environments, including their transfer to the trusted host. Plan a
-bounded, authenticated, encrypted streaming transfer into private host files;
-do not persist a second copy inside the Sprite. Restrict access and retention
-because captures can contain **other credentials** even when the Nebius key is
-absent. Do not upload captures to GitHub or another service.
+The artifact scanner remains available for already-collected captures. The
+separate streamed collector uses `nebius_capture.CaptureWriter` and a host-side
+`scan` with the private key-file; see [verification](verification.md) for its
+API, suite checkpoints and permission gates. It does not persist raw captures
+on either side. Before collecting anything, obtain approval for the precise
+filesystem roots, live-process environment scope, and their transfer to the
+trusted host. Do not send the actual key to the Sprite as a search argument.
+If using the legacy artifact scanner below, restrict capture access and
+retention because they can contain **other credentials** even when the Nebius
+key is absent. Do not upload captures to GitHub or another service.
 
 Capture the full filesystem scope and every process environment both before
 and after the approved agent runs. Keep raw, uncompressed bytes and a coverage
@@ -198,8 +286,11 @@ private key access have been explicitly approved.
 
 The offline tools do not yet orchestrate the full V1–V10 suite. Existing
 `scripts/verify` probes cover selected gateway checks; preserve their raw result
-timestamps and requirement scope. V4 still needs the specified Gateway
-Playground route, not a relabeled equivalent CLI request. V5–V8 require approved
+timestamps and requirement scope. V4's proposed equivalent is the existing
+production per-Sprite connector **Test**, which executes a gateway `/models`
+request inside the selected Sprite. It is not the dev-only Gateway Playground;
+obtain Scott's acceptance of this substitution and preserve that decision with
+the actual UI/API result before marking V4 passed. V5–V8 require approved
 agent runs (including independent file/test verification for Claude). V9 is an
 actual POST denial test and needs permission because a failed restriction could
 allow dispatch. Live collection and billing-console evidence remain separate,
@@ -212,5 +303,6 @@ inspection established S5 attribution and an exact numerical match to the
 recorded Nebius day view; V10 still needs project binding and a matching,
 complete accounting scope. Production's
 connector Test button is available, but Gateway Playground itself is gated
-behind development mode; settle that acceptance-route discrepancy before
-claiming literal V4 coverage.
+behind development mode. Staff-assisted reconciliation is the proposed v0
+workflow, not a customer self-service export or an already-approved change to
+US5. Settle both acceptance decisions before claiming those gates closed.

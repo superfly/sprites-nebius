@@ -5,10 +5,11 @@ supplied host-only key file. Evidence must be collected and reviewed separately;
 a ledger is not a test run.
 """
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -119,6 +120,8 @@ def _identifier(value):
 
 
 def _window(value):
+    if not isinstance(value, dict):
+        raise EvidenceError("invalid_window")
     start, end = _instant(value.get("started_at")), _instant(value.get("finished_at"))
     if start >= end:
         raise EvidenceError("invalid_window")
@@ -151,6 +154,35 @@ def _billing_count(value, unit):
         raise EvidenceError("invalid_billing_unit_or_count") from None
 
 
+def _day_export(scope, gateway, window):
+    """Require a scoped, complete export, not a client-derived expected count."""
+    start, finish = window
+    if (any((start.hour, start.minute, start.second, start.microsecond))
+            or finish - start != timedelta(days=1)):
+        raise EvidenceError("invalid_utc_day_window")
+    if finish > datetime.now(timezone.utc):
+        raise EvidenceError("utc_day_not_closed")
+    if not _digest(scope.get("isolation_sha256")):
+        raise EvidenceError("missing_isolation_evidence")
+    export = gateway.get("export")
+    if not isinstance(export, dict):
+        raise EvidenceError("missing_scoped_gateway_export")
+    if (export.get("truncated") is not False or not _digest(export.get("query_sha256"))
+            or export.get("window_basis") != "overlapping-requests"):
+        raise EvidenceError("incomplete_gateway_export")
+    if (_window(export) != window
+            or any(export.get(key) != scope[key] for key in
+                   ("connector_id", "sprite_id", "org_id", "provider", "model"))):
+        raise EvidenceError("gateway_export_scope_mismatch")
+    if not (_instant(export.get("collected_at")) >=
+            _instant(export.get("data_through")) >= finish):
+        raise EvidenceError("stale_gateway_export")
+    count = export.get("server_count")
+    if type(count) is not int or not 0 < count <= 10000:
+        raise EvidenceError("invalid_gateway_server_count")
+    return count
+
+
 def _reconcile(document):
     scope, gateway, billing = (document.get(key) for key in ("scope", "gateway", "billing"))
     if not all(isinstance(item, dict) for item in (scope, gateway, billing)):
@@ -162,18 +194,25 @@ def _reconcile(document):
     if not (_identifier(org_id) or type(org_id) is int and org_id > 0):
         raise EvidenceError("invalid_scope_identity")
     window = _window(scope)
+    mode = scope.get("accounting_mode", "request-set")
+    if mode not in ("request-set", "utc-day"):
+        raise EvidenceError("invalid_accounting_mode")
     if scope.get("isolated") is not True or not _digest(scope.get("project_binding_sha256")):
         raise EvidenceError("unverified_project_binding_or_isolation")
     expected = scope.get("request_ids")
-    if (not isinstance(expected, list) or not expected or len(expected) > 10000
-            or not all(_identifier(item) for item in expected) or len(set(expected)) != len(expected)):
-        raise EvidenceError("invalid_expected_requests")
+    if mode == "request-set" or "request_ids" in scope:
+        if (not isinstance(expected, list) or not expected or len(expected) > 10000
+                or not all(_identifier(item) for item in expected)
+                or len(set(expected)) != len(expected)):
+            raise EvidenceError("invalid_expected_requests")
     if gateway.get("complete") is not True or not _digest(gateway.get("artifact_sha256")):
         raise EvidenceError("incomplete_gateway_evidence")
     records = gateway.get("records")
     if not isinstance(records, list) or not records or len(records) > 10000:
         raise EvidenceError("missing_gateway_records")
+    server_count = _day_export(scope, gateway, window) if mode == "utc-day" else None
     seen = set()
+    noncompleted = 0
     totals = {"input_count": 0, "output_count": 0}
     for record in records:
         if not isinstance(record, dict) or record.get("event") != "gateway_inference_usage":
@@ -191,21 +230,30 @@ def _reconcile(document):
             raise EvidenceError("mixed_gateway_scope")
         start, finish = _instant(record.get("started_at")), _instant(record.get("finished_at"))
         if not window[0] <= start <= finish <= window[1]:
-            raise EvidenceError("gateway_request_outside_window")
+            raise EvidenceError("gateway_request_crosses_midnight" if mode == "utc-day"
+                                else "gateway_request_outside_window")
+        if mode == "utc-day" and finish == window[1]:
+            raise EvidenceError("gateway_request_crosses_midnight")
         status = record.get("status")
-        if (type(status) is not int or not 200 <= status < 300
-                or record.get("outcome") != "completed"):
-            raise EvidenceError("partial_or_failed_gateway_request")
+        if type(status) is not int or not 100 <= status <= 599 or not _identifier(record.get("outcome")):
+            raise EvidenceError("invalid_gateway_outcome")
+        # Failed/interrupted requests may still incur usage. Include known
+        # counts; excluding them could make a favorable comparison misleading.
+        noncompleted += int(not 200 <= status < 300 or record["outcome"] != "completed")
         if record.get("usage_known") is not True or record.get("unit") != "tokens":
             raise EvidenceError("unknown_usage")
         for key in totals:
             totals[key] += _count(record.get(key))
-    if seen != set(expected):
+    if expected is not None and seen != set(expected):
         raise EvidenceError("gateway_request_set_mismatch")
+    if server_count is not None and server_count != len(seen):
+        raise EvidenceError("gateway_server_count_mismatch")
     if (billing.get("source") != "nebius-billing-usage" or billing.get("view") != "full-numbers"
             or billing.get("precision") != "exact" or not _digest(billing.get("artifact_sha256"))):
         raise EvidenceError("non_authoritative_or_rounded_billing")
-    if billing.get("settled") is not True or billing.get("isolated") is not True:
+    if (billing.get("isolated") is not True
+            or mode == "request-set" and billing.get("settled") is not True
+            or "settled" in billing and billing["settled"] is not True):
         raise EvidenceError("unsettled_or_unrelated_billing")
     if (billing.get("project_id") != scope["project_id"] or billing.get("model") != scope["model"]
             or _window(billing) != window):
@@ -222,12 +270,17 @@ def _reconcile(document):
     if not sum(item["nebius"] for item in comparisons.values()):
         raise EvidenceError("no_billable_usage_to_reconcile")
     passed = all(item["within_five_percent"] for item in comparisons.values())
+    evidence = [{"source": "gateway-log", "artifact_sha256": gateway["artifact_sha256"]},
+                {"source": "nebius-billing", "artifact_sha256": billing["artifact_sha256"]},
+                {"source": "manual-review", "artifact_sha256": scope["project_binding_sha256"]}]
+    if mode == "utc-day":
+        evidence.extend([
+            {"source": "manual-review", "artifact_sha256": scope["isolation_sha256"]},
+            {"source": "gateway-log", "artifact_sha256": gateway["export"]["query_sha256"]}])
     return {"status": "pass" if passed else "fail", "reason": "within_tolerance" if passed
             else "usage_mismatch", "request_count": len(seen), "counts": comparisons,
-            "evidence": [{"source": "gateway-log", "artifact_sha256": gateway["artifact_sha256"]},
-                         {"source": "nebius-billing", "artifact_sha256": billing["artifact_sha256"]},
-                         {"source": "manual-review",
-                          "artifact_sha256": scope["project_binding_sha256"]}]}
+            "accounting_mode": mode, "noncompleted_request_count": noncompleted,
+            "evidence": evidence}
 
 
 def reconcile(document):
@@ -373,13 +426,20 @@ def _unique_object(pairs):
     return result
 
 
+def _finite_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise EvidenceError("invalid_json_number")
+    return number
+
+
 def read_document(path):
     try:
         with Path(path).open("rb") as source:
             raw = source.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise EvidenceError("evidence_file_too_large")
-        return json.loads(raw, object_pairs_hook=_unique_object,
+        return json.loads(raw, object_pairs_hook=_unique_object, parse_float=_finite_float,
                           parse_constant=lambda _: (_ for _ in ()).throw(EvidenceError("invalid_json_number")))
     except (OSError, ValueError, UnicodeError):
         raise EvidenceError("unreadable_or_invalid_evidence") from None
