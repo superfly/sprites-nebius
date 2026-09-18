@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import nebius_agents as agents
+from test_configure import FakeClient
 from nebius_configure import document, fields, STATE
 
 BASE = "https://api.sprites.dev/v1/gateway/custom_api/offline-agent-test"
@@ -126,6 +127,7 @@ class RunnerTests(unittest.TestCase):
         return agents.execute(options, home=self.home, environ={"PATH": "/usr/bin:/bin:relative:",
             "NEBIUS_API_KEY": "secret", "OPENAI_API_KEY": "secret", "NODE_OPTIONS": "malicious"},
             run=kwargs.pop("run", self.fake_run), which=lambda name: "/installed/bin/" + name,
+            client=FakeClient(gateways=(BASE,), models=(MODEL,)),
             inside_sprite=kwargs.pop("inside_sprite", True), revision=lambda: {"git_revision": "a" * 40, "working_tree_dirty": False}, **kwargs)
 
     def test_dry_plan_no_subprocess_config_or_sprite_required(self):
@@ -202,6 +204,57 @@ class RunnerTests(unittest.TestCase):
         report = self.execute(args(approve=True), run=run)
         self.assertEqual(report["results"][0]["status"], "inconclusive")
         self.assertEqual(len(self.calls), 1)
+
+    def test_configurator_files_and_lifecycle_are_exercised(self):
+        self.configure(["pi"])
+        seen = []
+        def run(argv, **kwargs):
+            fresh_home = Path(kwargs["env"]["HOME"])
+            self.assertTrue((fresh_home / STATE / "active.json").is_file())
+            self.assertEqual(agents.load_selection(fresh_home, ("pi",)), (BASE, MODEL))
+            callback = kwargs.pop("on_start", None)
+            if callback:
+                callback(123)
+            return self.fake_run(argv, **kwargs)
+        def fixture(root):
+            self.assertTrue((root / "home" / STATE / "active.json").is_file())
+            seen.append(root)
+        report = self.execute(args(approve=True), run=run,
+                              on_process=lambda pid: seen.append(pid), on_fixture=fixture)
+        self.assertEqual(seen[0], 123)
+        self.assertFalse(seen[1].exists())
+        self.assertEqual(report["results"][0]["cleanup"], "restored")
+        self.assertEqual(report["results"][0]["status"], "pass")
+
+    def test_failed_agent_still_captures_fixture_before_cleanup(self):
+        self.configure(["pi"])
+        observed = []
+        def run(argv, **kwargs):
+            if argv[1:] == ["--version"]:
+                return self.fake_run(argv, **kwargs)
+            return 1, b"PRIVATE_OUTPUT"
+        def fixture(root):
+            observed.append(root)
+            self.assertTrue((root / "home" / STATE / "active.json").exists())
+        report = self.execute(args(approve=True), run=run, on_fixture=fixture)
+        self.assertFalse(observed[0].exists())
+        self.assertEqual(report["results"][0]["cleanup"], "restored")
+        self.assertEqual(report["results"][0]["status"], "inconclusive")
+
+    def test_temporary_directory_cleanup_error_never_claims_restored(self):
+        self.configure(["pi"])
+        original = tempfile.TemporaryDirectory
+        class FailedExit:
+            def __init__(self, **kwargs):
+                self.owned = original(**kwargs)
+            def __enter__(self):
+                return self.owned.__enter__()
+            def __exit__(self, *exc):
+                self.owned.__exit__(*exc)
+                raise OSError("simulated removal failure")
+        with patch.object(agents.tempfile, "TemporaryDirectory", FailedExit):
+            report = self.execute(args(approve=True))
+        self.assertEqual(report["results"][0]["cleanup"], "needs-attention")
 
     def test_agent_error_not_retried_or_output_leaked(self):
         self.configure(["pi", "opencode"])

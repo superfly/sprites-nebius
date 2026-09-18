@@ -29,7 +29,7 @@ import tempfile
 import time
 
 from nebius_configure import (
-    ConfigureError, ENV_KEY, STATE, document, fields, get_value, read_file, safe_path,
+    ConfigureError, ENV_KEY, STATE, configure, document, fields, get_value, read_file, safe_path,
 )
 from nebius_verify import PLACEHOLDER, gateway_url
 
@@ -49,7 +49,7 @@ def utcnow():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def run_process(argv, *, cwd, env, timeout):
+def run_process(argv, *, cwd, env, timeout, on_start=None):
     """Bound output/time; kill only the new child process group on termination."""
     try:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
@@ -60,6 +60,8 @@ def run_process(argv, *, cwd, env, timeout):
     total = 0
     deadline = time.monotonic() + timeout
     try:
+        if on_start is not None:
+            on_start(proc.pid)
         with selectors.DefaultSelector() as selector:
             selector.register(proc.stdout, selectors.EVENT_READ, True)
             selector.register(proc.stderr, selectors.EVENT_READ, False)
@@ -89,8 +91,9 @@ def run_process(argv, *, cwd, env, timeout):
         # session/group was created specifically by this invocation.
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        except (ProcessLookupError, PermissionError):
+            if proc.poll() is None:
+                proc.kill()
         proc.wait()
         proc.stdout.close()
         proc.stderr.close()
@@ -158,14 +161,14 @@ def isolated_environment(root, executable, *, node=None):
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 
 
-def prepare(root, agent, gateway, model):
+def prepare(root, agent, gateway, model, *, client=None, which=shutil.which):
     home = root / "home"
     for relative in ("home", "work", "tmp"):
         (root / relative).mkdir(mode=0o700)
-    for relative, (kind, changes) in fields((agent,), gateway, model).items():
+    # Seed only acceptance restrictions. The real configurator supplies all
+    # provider/model fields, so native execution exercises its emitted files.
+    for relative, (kind, _) in fields((agent,), gateway, model).items():
         doc = document(None, kind)
-        for path, value in changes:
-            doc.set(path, value)
         if agent == "codex":
             for path, value in [(("web_search",), "disabled"), (("project_doc_max_bytes",), 0),
                                 (("check_for_update_on_startup",), False), (("agents", "enabled"), False),
@@ -184,6 +187,12 @@ def prepare(root, agent, gateway, model):
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         target.write_text(doc.render())
         target.chmod(0o600)
+    options = argparse.Namespace(agents=agent, connector=gateway.rsplit("/", 1)[1],
+                                 model=model, dry_run=False, off=False,
+                                 activate=False, approve_service_change=False)
+    configure(options, home=home, environ={}, client=client, which=which, inside_sprite=True)
+    if load_selection(home, (agent,)) != (gateway, model):
+        raise AgentError("Configurator selected an unexpected route")
     return root / "work"
 
 
@@ -297,7 +306,9 @@ def git_revision():
         raise AgentError("Cannot determine local source revision; no agent launched") from None
 
 
-def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_process, which=shutil.which, revision=git_revision):
+def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_process,
+            which=shutil.which, revision=git_revision, client=None,
+            on_process=None, on_fixture=None):
     agents = tuple(args.agents.split(","))
     if not agents or len(set(agents)) != len(agents) or any(name not in PINS for name in agents):
         raise AgentError("Select distinct codex,opencode,pi,claude agents explicitly")
@@ -337,35 +348,50 @@ def execute(args, *, home=None, environ=None, inside_sprite=None, run=run_proces
                 if not executable or not Path(executable).is_absolute():
                     raise AgentError("Pinned agent executable is missing")
                 with tempfile.TemporaryDirectory(prefix="sprites-nebius-agent-") as directory:
-                    root = Path(directory)
-                    work = prepare(root, agent, gateway, model)
-                    env = isolated_environment(root, executable, node=which("node"))
-                    code, raw = run([executable, "--version"], cwd=work, env=env, timeout=10)
-                    versions = re.findall(rb"(?<![\d.])\d+\.\d+\.\d+(?![\d.])", raw)
-                    if code or versions != [PINS[agent].encode()]:
-                        raise AgentError("Installed agent version does not match the reviewed candidate pin")
-                    row["verified_version"] = PINS[agent]
-                    if agent == "claude":
-                        import nebius_claude
-                        settings = nebius_claude.setup(root)
-                        argv = nebius_claude.command(executable, settings)
-                    else:
-                        argv = command(agent, executable)
-                    code, raw = run(argv, cwd=work, env=env, timeout=args.timeout)
-                    row["output_metadata"] = output_metadata(agent, raw)
-                    if code:
-                        raise AgentError("Agent returned nonzero; output omitted and no retry")
-                    if agent == "claude":
-                        row.update(nebius_claude.verify(work, raw, run, env))
-                    else:
-                        passed = exact_ok(agent, raw)
-                        row.update(status="pass" if passed else "fail", exact_ok=passed)
-                        if not passed:
-                            row["reason"] = "Final answer was not exactly OK; content omitted"
+                    root = Path(directory).resolve()
+                    work = prepare(root, agent, gateway, model, client=client, which=which)
+                    row["cleanup"] = "needs-attention"
+                    try:
+                        env = isolated_environment(root, executable, node=which("node"))
+                        code, raw = run([executable, "--version"], cwd=work, env=env, timeout=10)
+                        versions = re.findall(rb"(?<![\d.])\d+\.\d+\.\d+(?![\d.])", raw)
+                        if code or versions != [PINS[agent].encode()]:
+                            raise AgentError("Installed agent version does not match the reviewed candidate pin")
+                        row["verified_version"] = PINS[agent]
+                        if agent == "claude":
+                            import nebius_claude
+                            settings = nebius_claude.setup(root)
+                            argv = nebius_claude.command(executable, settings)
+                        else:
+                            argv = command(agent, executable)
+                        callbacks = {"on_start": on_process} if on_process is not None else {}
+                        code, raw = run(argv, cwd=work, env=env, timeout=args.timeout, **callbacks)
+                        row["output_metadata"] = output_metadata(agent, raw)
+                        if code:
+                            raise AgentError("Agent returned nonzero; output omitted and no retry")
+                        if agent == "claude":
+                            row.update(nebius_claude.verify(work, raw, run, env))
+                        else:
+                            passed = exact_ok(agent, raw)
+                            row.update(status="pass" if passed else "fail", exact_ok=passed)
+                            if not passed:
+                                row["reason"] = "Final answer was not exactly OK; content omitted"
+                    finally:
+                        try:
+                            if on_fixture is not None:
+                                on_fixture(root)
+                        finally:
+                            configure(argparse.Namespace(off=True, dry_run=False, agents=agent,
+                                                        connector=None, model=None, activate=False,
+                                                        approve_service_change=False),
+                                      home=root / "home", environ={}, inside_sprite=True)
+                            row["cleanup"] = "restored"
+                    row["configuration_path"] = "configurator_written_isolated_home"
             except AgentError as error:
                 row.update(status="inconclusive", reason=str(error))
             except (ConfigureError, OSError):
-                row.update(status="inconclusive", reason="Agent/config/version/output check failed; inspect locally under fresh approval, no output logged")
+                row.update(status="inconclusive", cleanup="needs-attention",
+                           reason="Agent/config/version/output check failed; inspect locally under fresh approval, no output logged")
             stopped = row["status"] != "pass"
         row["finished_at"] = utcnow()
     return report

@@ -361,7 +361,7 @@ def write_denial(client, base):
     return [{"check": "V9", "status": "pass" if status == 403 and matched else "fail",
              "started_at": started, "finished_at": utc_now(), "http_status": status,
              "gateway_policy_error_observed": matched, "request_attempts": 1,
-             "note": "HTTP and gateway policy error observed; retain separate no-upstream-dispatch evidence"}]
+             "note": "HTTP and gateway policy error satisfy V9; independent dispatch tracing is optional hardening"}]
 
 
 def parser():

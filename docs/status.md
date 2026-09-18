@@ -38,25 +38,38 @@ Claude rerun above provides live evidence for its final implementation.
 | S4 | GET denials and one POST `/files` policy 403 observed; test policy remains intentionally narrower than the full proposed allowlist |
 | S5 | Authorized production inspection on September 17 found 12 unique completed usage records with the expected connector/Sprite attribution; server-side count also 12 |
 | S6 | Pinned MIT-derived adapter ran as owned Sprite service; confined real Claude edit/test round trip passed |
-| B1 | 195 offline tests, source checks, dependency compatibility/audit and redacted Git/source secret scans pass locally; public GitHub CI not run |
+| B1 | Prior 195-test baseline and private PR CI passed; gap-closure changes require their own recorded checks before pushing |
 | B2 | V5–V7 live checks passed; configuration dry-run/apply and byte-for-byte restoration verified |
 | B3 | V8 passed; service create, idempotent start, stop/delete/recreate and configuration-off exercised |
-| B4 | Gateway probes, permission-gated POST denial, evidence ledger/reconciliation and host capture scanner implemented; full cross-context collection/orchestration remains incomplete |
+| B4 | Cross-context coordinator and streamed collector implemented with offline tests; approved live trial and V4/V10 operator-input boundary acceptance remain open |
 | B5 | Conditional quickstart, exact candidate installation pins and connector guide written; independent unaided-admin acceptance still required |
 | B6 | Reconciliation tooling/guide implemented; observed gateway and provider counts match, but full V10 prerequisites remain |
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
 | L2 | Private repository/internal PR authorized; public release and ecosystem listing remain pending explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
-| V1 | Host-only matcher and coverage checks tested with fake captures; actual before/after filesystem and all-process-environment collection not performed |
+| V1 | Keyless streamed lifecycle collection and host-only matcher implemented; actual sensitive collection not authorized/run, scope/timing awaits security acceptance |
 | V2 | Fresh laptop GET returned expected 401 at 07:23:26 UTC |
 | V3 | Historical unlabeled-Sprite 403 recorded; no fresh rerun this implementation batch |
 | V4 | Production connector Test returned 200, but Playground is development-gated; exact specified route remains blocked |
 | V5–V7 | Passed scoped exact-OK checks above |
 | V8 | Passed confined edit/test task, stream events and independent test validation above |
-| V9 | One empty POST `/files` at 07:27:34–07:27:35 returned 403 with exact gateway policy error; independent no-dispatch evidence still needed |
+| V9 | One empty POST `/files` at 07:27:34–07:27:35 returned 403 with exact gateway policy error, satisfying the specified check; independent no-dispatch tracing is optional |
 | V10 | Gateway: 27,100 input / 262 output tokens, exactly matching the recorded provider day view (0% difference). Project binding, aligned accounting windows and completeness/settlement still need confirmation |
 
 ## Current state
+
+The gap-closure implementation adds one-command Bash/Zsh activation, tests of
+actual configurator-written agent files, cross-context verification and a
+non-persistent streamed scanner. No new live inference, real-key collection,
+policy/label changes, independent acceptance or launch approval is implied.
+The older live observations below are not evidence for these new code paths.
+See [verification](verification.md) for permissions and remaining gates.
+
+Local gap-closure validation on 18 September: 283 offline tests passed, including
+local fixture HTTP servers, Bash/Zsh activation and streamed-capture fault tests.
+All 17 installed dependencies are compatible; source secret scan and whitespace
+checks passed. No live Sprite transport, native inference or real-key scan was
+run for these changes. This is not independent security or unaided-admin sign-off.
 
 After the original four-agent batch, all seven managed files matched their
 original bytes following `configure --off`. After the post-hardening Claude

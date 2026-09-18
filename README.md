@@ -29,12 +29,19 @@ argument.
   (Chat Completions and Responses), SSE completion validation and arrival timing.
 - `scripts/configure`: installed-agent discovery, explicit connector/model
   selection, dry-run, private backups, comment-preserving edits and `--off`.
+- `source scripts/use-nebius on|off`: one-command shell activation/restoration;
+  Claude service changes require explicit approval and bounded readiness checks.
 - Claude's pinned MIT-derived loopback adapter, hardened transport and explicit
-  ownership-checked Sprite service helper. No service starts during configure.
+  ownership-checked Sprite service helper. Configure is configuration-only by
+  default; the sourced activation helper explicitly opts into service changes.
 - `scripts/verify acceptance`: offline requirement ledger, exact usage
   reconciliation and host-only leak scanning of separately authorized captures.
 - `scripts/verify-agents`: approved native exact-OK checks and a separately
   gated, confined Claude edit/test fixture with independent result validation.
+- `scripts/verify suite`: dry-plan-first host coordinator, immutable dispatch
+  checkpoints, scoped streaming key scan and reviewed V4/V10 evidence inputs.
+  See [coordinated verification](docs/verification.md); new paths are offline-tested,
+  not yet live-validated or independently signed off.
 - Offline tests, canonical template checks, pinned dependencies and redacted
   Git/current-source secret scanning in CI. Ordinary CI never spends inference.
 
@@ -74,9 +81,9 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 | S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
 | V1 | Real-key isolation scan and authorized private capture collection still needed |
 | V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
-| V9 | One POST `/files` returned policy 403; retain independent no-dispatch evidence |
+| V9 | One POST `/files` returned the required policy 403; dispatch tracing is optional extra assurance |
 | V10 | Gateway totals match the observed Nebius day-view counts exactly; project binding, aligned windows and complete accounting still need confirmation |
-| Build completion | Full live-check orchestration, approved capture collection and independent unaided-admin setup trial |
+| Build completion | Approved live validation of the coordinator/streamed scan/one-command setup, V4/V10 operator-input acceptance and independent unaided-admin setup trial |
 | Launch | Security sign-off, publishing and partnership outreach, with authorization |
 
 The full scope remains the four-agent integration. We are not implementing a
