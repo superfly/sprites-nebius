@@ -301,9 +301,10 @@ private key access have been explicitly approved.
 
 ## Remaining live gates
 
-The offline tools do not yet orchestrate the full V1–V10 suite. Existing
-`scripts/verify` probes cover selected gateway checks; preserve their raw result
-timestamps and requirement scope. V4's proposed equivalent is the existing
+The [coordinator](verification.md) combines the V1–V10 checks, but its complete
+live trial and acceptance of operator-supplied V4/V10 evidence remain open.
+Preserve standalone probe timestamps and requirement scope rather than treating
+them as a completed coordinated run. V4's proposed equivalent is the existing
 production per-Sprite connector **Test**, which executes a gateway `/models`
 request inside the selected Sprite. It is not the dev-only Gateway Playground;
 obtain Scott's acceptance of this substitution and preserve that decision with
@@ -315,8 +316,10 @@ explicit steps; missing permission or unavailable evidence is not a pass.
 
 The 16 September live smoke run passed V5–V8 and observed the required policy
 403 for V9. See [status](status.md) for exact versions and revisions. Those
-observations do not supply V1 capture evidence. Subsequent authorized gateway
-inspection established S5 attribution and an exact numerical match to the
+observations do not supply V1 capture evidence. The separately approved
+20 September key scan found no matches but hit its byte cap, leaving V1
+inconclusive. Earlier authorized gateway inspection established S5 attribution
+and an exact numerical match to the
 recorded Nebius day view; V10 still needs project binding and a matching,
 complete accounting scope. Production's
 connector Test button is available, but Gateway Playground itself is gated

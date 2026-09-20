@@ -1,6 +1,6 @@
 # Requirement-to-evidence checklist
 
-Updated 18 September 2026. Live smoke success is not release/security sign-off.
+Updated 21 September 2026. Live smoke success is not release/security sign-off.
 Keep private resource identifiers and original usage evidence out of public Git.
 
 ## Live agent evidence
@@ -30,7 +30,7 @@ silently relabeled for a later commit. No full 25-requirement pass is claimed.
 The pre-PR hardening review itself was offline; the separately authorized
 Claude rerun above provides live evidence for its final implementation.
 
-### Latest approved live batch
+### Latest approved agent batch
 
 On **18 September 2026, 01:57:40–01:58:55 UTC**, clean revision `b880115`
 passed the normal sourced on/off workflow and current-source owned-service
@@ -57,6 +57,36 @@ admin/security acceptance. No key scan, policy/label change or new Sprite was
 authorized or performed. The current four-agent/two-stream/one-denial allowance
 is consumed; further live invocations need fresh approval.
 
+### Subsequent denial and key-isolation checks
+
+At revision `826a930`, standalone V2 and V3 checks passed on **18 September
+2026**: one laptop GET returned 401 at 03:34:58 UTC, and one GET from a newly
+created unlabeled Sprite returned 403 at 03:39:20 UTC. Neither check made an
+inference request or changed connector policy.
+
+On **20 September 2026, 22:42–22:46 UTC** (21 September Melbourne), a separately
+approved batch used a new test connector/key and the existing labeled Sprite.
+One gateway GET `/models` returned 200 with 24 validated models. Temporary
+`/models` access was restored to deny-all immediately after that GET, before
+collection; final verification and an independent readback confirmed it.
+The original connector and Sprite labels were unchanged. No inference or retry
+was performed.
+
+The keyless collector from `826a930` streamed regular files and live process
+environments directly to the host-only exact-key matcher, without retaining or
+printing raw capture data or sending the key to the Sprite. It sampled 85,172
+files and 3 environments (4,294,945,515 bytes), finding **zero matching objects**
+and no unreadable objects or detected races. It excluded 1,560 objects under its
+declared scope and reached the approved **4 GiB byte cap**, so **V1 remains
+inconclusive**. This is point-in-time evidence for the new test key, not proof
+about historical agent executions or a complete filesystem scan.
+
+The standalone wrapper completed successfully; its exit zero does not mean V1
+passed. The allowance is consumed. Further collection needs a reviewed budget
+and fresh permission; increasing the current 4 GiB implementation ceiling also
+requires code review and tests. Private resource identifiers, source hashes and
+metadata-only checkpoints remain outside this repository.
+
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
 | S1 | Historical live connector injection check passed; retain original dated evidence |
@@ -68,15 +98,15 @@ is consumed; further live invocations need fresh approval.
 | B1 | Repo, licenses and secret-scan CI implemented; 283-test gap-closure baseline at `4c82e1d` passed both private PR and push CI checks |
 | B2 | V5–V7 passed at `b880115` using real configurator-written files; normal sourced on/off and restoration verified |
 | B3 | V8 and normal sourced activation/service readiness/restoration passed at `b880115`; previous service lifecycle observations remain dated evidence |
-| B4 | Cross-context coordinator and streamed collector implemented with offline tests; approved live trial and V4/V10 operator-input boundary acceptance remain open |
+| B4 | Cross-context coordinator and streamed collector implemented with offline tests; standalone collection exercised live, but the complete coordinator trial and V4/V10 operator-input boundary acceptance remain open |
 | B5 | Conditional quickstart, exact candidate installation pins and connector guide written; independent unaided-admin acceptance still required |
 | B6 | Reconciliation tooling/guide implemented; observed gateway and provider counts match, but full V10 prerequisites remain |
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
 | L2 | Private repository/internal PR authorized; public release and ecosystem listing remain pending explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
-| V1 | Keyless streamed lifecycle collection and host-only matcher implemented; actual sensitive collection not authorized/run, scope/timing awaits security acceptance |
-| V2 | Fresh laptop GET returned expected 401 at 07:23:26 UTC |
-| V3 | Historical unlabeled-Sprite 403 recorded; no fresh rerun this implementation batch |
+| V1 | Authorized point-in-time scan at `826a930` found no matches but hit its 4 GiB cap; incomplete coverage is inconclusive, not a pass |
+| V2 | Standalone laptop GET returned expected 401 on 18 September at 03:34:58 UTC, using the verifier from `826a930` |
+| V3 | Standalone unlabeled-Sprite GET returned expected 403 on 18 September at 03:39:20 UTC, using the verifier from `826a930` |
 | V4 | Production connector Test returned 200, but omits model-list evidence; Playground is development-gated. Exact specified route or an explicitly accepted complete alternative remains required |
 | V5–V7 | Fresh scoped exact-OK checks passed at `b880115` |
 | V8 | Fresh confined edit/test task, five stream deltas and independent test passed at `b880115` |
@@ -87,10 +117,10 @@ is consumed; further live invocations need fresh approval.
 
 The gap-closure implementation adds one-command Bash/Zsh activation, tests of
 actual configurator-written agent files, cross-context verification and a
-non-persistent streamed scanner. The latest approved batch above supplies live
-evidence for activation and isolated native-agent/probe paths, not the full
-coordinator or scanner. No real-key collection, policy/label changes,
-independent acceptance or launch approval is implied.
+non-persistent streamed scanner. The approved batches above supply live
+evidence for activation, isolated native-agent/probe paths and bounded
+standalone collection, not the full coordinator or complete V1 coverage.
+Independent acceptance and launch approval remain outstanding.
 See [verification](verification.md) for permissions and remaining gates.
 
 Local gap-closure validation on 18 September: 283 offline tests passed, including
@@ -107,6 +137,11 @@ Fixture tests cover legacy cleanup without automatic restart. Source secret
 scan, Bash/Zsh syntax and whitespace checks passed. The later `b880115` batch
 above supplies scoped live evidence, but does not close V1, V4, V10 or the
 independent acceptance gates.
+
+On 21 September, 25 collector/matcher and 43 verifier tests passed under system
+Python 3.9.6, including permitted local loopback fixtures. These focused tests
+cover the dependency-free paths used by the standalone batch, not the full
+Python 3.12+ template runtime. No new native-agent invocation was made.
 
 After the original four-agent batch, all seven managed files matched their
 original bytes following `configure --off`. After the post-hardening Claude

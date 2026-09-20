@@ -13,8 +13,8 @@ have been observed live. Codex, OpenCode and Pi returned exactly `OK`; Claude
 edited a confined fixture and ran its test through the local adapter. These
 16 September checks used Qwen3-30B-A3B-Instruct-2507 and the exact versions in
 [the checklist](docs/status.md), not every model or arbitrary coding tasks.
-The confined Claude edit/test check passed again after hardening at `9fd19d4`
-on 17 September UTC (18 September Melbourne); the other agents were not rerun.
+All four agents passed again at `b880115` on 18 September UTC, including normal
+shell activation/restoration and the confined Claude edit/test check.
 No real Nebius key belongs in this repository, a Sprite, or a command-line
 argument.
 
@@ -40,8 +40,8 @@ argument.
   gated, confined Claude edit/test fixture with independent result validation.
 - `scripts/verify suite`: dry-plan-first host coordinator, immutable dispatch
   checkpoints, scoped streaming key scan and reviewed V4/V10 evidence inputs.
-  See [coordinated verification](docs/verification.md); new paths are offline-tested,
-  not yet live-validated or independently signed off.
+  See [coordinated verification](docs/verification.md); the complete coordinator
+  still needs a live trial, distinct from the standalone checks below.
 - Offline tests, canonical template checks, pinned dependencies and redacted
   Git/current-source secret scanning in CI. Ordinary CI never spends inference.
 
@@ -79,11 +79,11 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 | S4 | Full intended policy/path coverage; existing approved test policy remains narrower |
 | S5 | Verified in production usage records for the 2026-09-16 batch; private identifiers and logs retained outside this repository |
 | S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
-| V1 | Real-key isolation scan and authorized private capture collection still needed |
+| V1 | Authorized scan found no key matches in 85,172 files and 3 process environments, but hit its 4 GiB cap; complete declared coverage remains unproven |
 | V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
 | V9 | One POST `/files` returned the required policy 403; dispatch tracing is optional extra assurance |
 | V10 | Gateway totals match the observed Nebius day-view counts exactly; project binding, aligned windows and complete accounting still need confirmation |
-| Build completion | Approved live validation of the coordinator/streamed scan/one-command setup, V4/V10 operator-input acceptance and independent unaided-admin setup trial |
+| Build completion | Approved live validation of the complete coordinator, V4/V10 operator-input acceptance and independent unaided-admin setup trial; activation/restoration already tested |
 | Launch | Security sign-off, publishing and partnership outreach, with authorization |
 
 The full scope remains the four-agent integration. We are not implementing a

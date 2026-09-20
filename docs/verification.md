@@ -2,8 +2,10 @@
 
 `scripts/verify suite` coordinates the existing probes and native-agent tests.
 It previews by default. It does **not** create Sprites/connectors, upload code,
-install agents, start the adapter or change policy/labels. Its remote transport
-and the new activation wrapper still need an explicitly approved live trial.
+install agents, start the adapter or change policy/labels. The complete
+coordinator still needs an explicitly approved live trial. Activation/restoration
+and standalone streamed collection have been exercised separately; see the
+[dated results and coverage limits](status.md).
 
 ## Prepare an explicit plan
 
