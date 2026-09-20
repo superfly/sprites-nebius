@@ -27,12 +27,14 @@ import uuid
 
 import nebius_acceptance as acceptance
 import nebius_agents as agents
+from nebius_capture import MAX_BYTES, MAX_FILES
 from nebius_configure import atomic_write, safe_path
 from nebius_verify import Client, ProbeError, access, gateway_url, inference, utc_now, write_denial
 
 OPERATIONS = ("outside", "unlabeled", "access", "streaming", "codex", "opencode", "pi", "claude", "denial", "scan")
 REQUIREMENTS = tuple("V" + str(i) for i in range(1, 11))
 LIMIT = 2 * 1024 * 1024
+MAX_SCAN_TIMEOUT = 20 * 60
 
 
 class SuiteError(Exception):
@@ -93,7 +95,7 @@ def validate_plan(plan):
     if any(p == "/proc" or p.startswith("/proc/") or p == "/sys" or p.startswith("/sys/")
            or p == "/dev" or p.startswith("/dev/") and not (p == "/dev/shm" or p.startswith("/dev/shm/")) for p in scan["roots"]):
         raise SuiteError("virtual_scan_root")
-    for key, low, high in (("max_bytes", 1, 4 * 1024**3), ("max_files", 1, 100000), ("timeout", 1, 300)):
+    for key, low, high in (("max_bytes", 1, MAX_BYTES), ("max_files", 1, MAX_FILES), ("timeout", 1, MAX_SCAN_TIMEOUT)):
         if type(scan[key]) is not int or not low <= scan[key] <= high:
             raise SuiteError("invalid_scan_limits")
     return plan
@@ -356,11 +358,11 @@ def checked_result(plan, operation, value):
         clean["scan"] = {"status": "inconclusive", "files": 0, "environments": 0, "bytes": 0, "matching_objects": 0}
         for key in ("files", "environments", "bytes", "matching_objects"):
             count = scanned.get(key)
-            if type(count) is int and 0 <= count <= 4 * 1024**3:
+            if type(count) is int and 0 <= count <= MAX_BYTES:
                 clean["scan"][key] = count
         coverage = scanned.get("coverage")
         names = ("files", "environments", "bytes", "unreadable", "races", "excluded", "capped")
-        if isinstance(coverage, dict) and all(type(coverage.get(k)) is int and 0 <= coverage[k] <= 4 * 1024**3 for k in names):
+        if isinstance(coverage, dict) and all(type(coverage.get(k)) is int and 0 <= coverage[k] <= MAX_BYTES for k in names):
             clean["scan"]["coverage"] = {k: coverage[k] for k in names}
         if clean["scan"]["matching_objects"] or scanned.get("status") == "fail":
             clean["scan"]["status"] = "fail"

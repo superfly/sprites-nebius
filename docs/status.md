@@ -83,9 +83,10 @@ about historical agent executions or a complete filesystem scan.
 
 The standalone wrapper completed successfully; its exit zero does not mean V1
 passed. The allowance is consumed. Further collection needs a reviewed budget
-and fresh permission; increasing the current 4 GiB implementation ceiling also
-requires code review and tests. Private resource identifiers, source hashes and
-metadata-only checkpoints remain outside this repository.
+and fresh permission. The tested revision's 4 GiB implementation ceiling was
+subsequently raised for explicitly budgeted future runs; this does not extend
+the consumed allowance or change this result. Private resource identifiers,
+source hashes and metadata-only checkpoints remain outside this repository.
 
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
@@ -142,6 +143,12 @@ On 21 September, 25 collector/matcher and 43 verifier tests passed under system
 Python 3.9.6, including permitted local loopback fixtures. These focused tests
 cover the dependency-free paths used by the standalone batch, not the full
 Python 3.12+ template runtime. No new native-agent invocation was made.
+
+Follow-up local validation on 21 September: **297 offline tests passed** under
+Python 3.12.14 with all 17 dependency versions matching the repository pins.
+The larger explicit scan ceilings preserve standalone defaults, chunk sizes,
+per-run limits and no-retry/resume guards. No larger live scan was performed;
+the earlier cap-limited V1 result remains inconclusive.
 
 After the original four-agent batch, all seven managed files matched their
 original bytes following `configure --off`. After the post-hardening Claude

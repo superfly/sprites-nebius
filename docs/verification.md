@@ -53,9 +53,12 @@ its binding to the organization slug. Never put a token or key in this file.
 }
 ```
 
-The scan example is a ceiling, not a promise that an entire Sprite fits within
-it. Review its mounted filesystems and data volume before approving. Smaller
-root lists narrow the evidence: never present a home-only scan as a full
+The scan example is a per-run ceiling, not a promise that an entire Sprite fits
+within it. Explicit plans may request up to 16 GiB, 400,000 objects and 1,200
+seconds per worker; the collector's smaller standalone defaults are unchanged.
+An increased budget needs fresh permission and a new plan, not a resumed run
+with altered limits. Review mounted filesystems and data volume before approving.
+Smaller root lists narrow the evidence: never present a home-only scan as a full
 filesystem scan. Exceeding a byte/object/time limit is inconclusive.
 Byte and object allowances are shared across the five lifecycle/final capture
 streams; each worker receives only the remaining allowance. The timeout is per

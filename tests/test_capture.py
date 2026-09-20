@@ -119,6 +119,28 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(coverage["capped"], 1)
             self.assertEqual(self.scan(raw)["status"], "inconclusive")
 
+    def test_larger_explicit_limits_do_not_change_defaults(self):
+        self.assertEqual(capture.CaptureWriter(io.BytesIO()).options,
+                         {"max_bytes": 64 * 1024**2, "max_files": 10_000, "timeout": 120})
+        (self.files / "fixture").write_bytes(b"ordinary fixture")
+        options = {"max_bytes": capture.MAX_BYTES, "max_files": capture.MAX_FILES,
+                   "timeout": capture.MAX_TIMEOUT}
+        raw, coverage = self.collect(**options)
+        self.assertEqual(coverage["bytes"], 16)
+        self.assertEqual(self.scan(raw, **options)["status"], "pass")
+        self.assertEqual(self.scan(raw, max_bytes=15)["status"], "inconclusive")
+
+    def test_limit_boundaries_reject_before_output(self):
+        for field, maximum in (("max_bytes", capture.MAX_BYTES),
+                               ("max_files", capture.MAX_FILES), ("timeout", capture.MAX_TIMEOUT)):
+            for value in (0, -1, True, maximum + 1, float("inf"), float("nan")):
+                with self.subTest(field=field, value=value):
+                    output = io.BytesIO()
+                    with self.assertRaisesRegex(capture.CaptureError, "^invalid_capture_limits$"):
+                        capture.write(output, roots=[self.files], **{field: value})
+                    self.assertEqual(output.getvalue(), b"")
+                    self.assertEqual(self.scan(b"", **{field: value})["status"], "inconclusive")
+
     def test_shared_writer_accumulates_lifecycle_samples(self):
         (self.files / "file").write_bytes(b"fixture")
         other = self.root / "other"

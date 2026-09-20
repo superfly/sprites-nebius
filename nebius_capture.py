@@ -23,8 +23,10 @@ from nebius_acceptance import _private_file
 
 MAGIC = b"SPRITES-NEBIUS-SCAN-1\n"
 CHUNK = 64 * 1024
-MAX_BYTES = 4 * 1024**3
-MAX_FILES = 100_000
+MAX_BYTES = 16 * 1024**3
+MAX_FILES = 400_000
+# Room for the suite's 20-minute scan plus native-agent and transport overhead.
+MAX_TIMEOUT = 25 * 60
 COUNTERS = ("files", "environments", "bytes", "unreadable", "races", "excluded", "capped")
 
 
@@ -35,7 +37,7 @@ class CaptureError(Exception):
 def _limits(max_bytes, max_files, timeout):
     if (type(max_bytes) is not int or not 1 <= max_bytes <= MAX_BYTES
             or type(max_files) is not int or not 1 <= max_files <= MAX_FILES
-            or type(timeout) not in (int, float) or not 0 < timeout <= 600):
+            or type(timeout) not in (int, float) or not 0 < timeout <= MAX_TIMEOUT):
         raise CaptureError("invalid_capture_limits")
 
 

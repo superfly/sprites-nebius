@@ -11,6 +11,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 import nebius_suite as suite
+import nebius_capture as capture
 
 
 def plan():
@@ -52,15 +53,48 @@ class SuiteTests(unittest.TestCase):
         for key, value in [("model", 123), ("org", "--debug"), ("org_id", True), ("tested_revision", "main"),
                            ("agent_bin", "/opt/../etc"), ("agent_timeout", float("nan")), ("key", "secret")]:
             p = plan(); p[key] = value; cases.append(p)
-        for key, value in [("max_bytes", 2**40), ("max_files", 100001), ("roots", ["/proc"]),
+        for key, value in [("max_bytes", suite.MAX_BYTES + 1), ("max_files", suite.MAX_FILES + 1), ("roots", ["/proc"]),
                            ("roots", ["/home", "/home/sprite"]), ("roots", ["/tmp", "/tmp"]),
-                           ("roots", ["//tmp"]), ("timeout", 301)]:
+                           ("roots", ["//tmp"]), ("timeout", suite.MAX_SCAN_TIMEOUT + 1)]:
             p = plan(); p["scan"][key] = value; cases.append(p)
         for p in cases:
             with self.subTest(p=p), self.assertRaises((suite.SuiteError, ValueError, suite.acceptance.EvidenceError)):
                 suite.validate_plan(p)
         p = plan(); p["scan"]["roots"] = ["/"]
         self.assertEqual(suite.validate_plan(p), p)
+
+    def test_larger_budget_is_explicit_and_requires_fresh_plan(self):
+        old = plan()
+        state = suite.run_suite(old, {}, executor=fake)
+        p = plan()
+        p["scan"].update(max_bytes=16 * 1024**3, max_files=400_000, timeout=1200)
+        p["agent_timeout"] = 180
+        with patch.object(suite, "invoke") as execute, patch.object(capture, "read_host_key") as read_key:
+            self.assertEqual(suite.preview(suite.validate_plan(p))["scan"], p["scan"])
+            suite.run_suite(p, {}, executor=execute)
+            with self.assertRaisesRegex(suite.SuiteError, "^resume_context_mismatch$"):
+                suite.run_suite(p, {}, previous=state, executor=execute)
+        execute.assert_not_called()
+        read_key.assert_not_called()
+        # Both worker and host-matcher deadlines must fit the collector's ceiling.
+        for overhead in (p["agent_timeout"], p["agent_timeout"] + 30):
+            capture._limits(p["scan"]["max_bytes"], p["scan"]["max_files"], p["scan"]["timeout"] + overhead)
+
+    def test_larger_capture_counts_survive_sanitizing_and_resume(self):
+        p = plan()
+        p["scan"]["max_bytes"] = 16 * 1024**3
+        observed = 4 * 1024**3 + 1
+        def execute(p, op, **kwargs):
+            result = fake(p, op, **kwargs)
+            result["scan"]["bytes"] = observed
+            result["scan"]["coverage"] = dict(files=3, environments=1, bytes=observed,
+                                              unreadable=0, races=0, excluded=0, capped=0)
+            return result
+        approvals = {"exec": True, "scan": True}
+        state = suite.run_suite(p, approvals, executor=execute, key_file="/private/fake-key")
+        resumed = suite.run_suite(p, {}, previous=state, executor=execute)
+        self.assertEqual(resumed["operations"]["scan"]["scan"]["bytes"], observed)
+        self.assertEqual(resumed["operations"]["scan"]["scan"]["coverage"]["bytes"], observed)
 
     def test_no_approvals_means_no_calls(self):
         with patch.object(suite, "invoke") as call:
