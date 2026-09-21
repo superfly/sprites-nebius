@@ -114,13 +114,33 @@ printed. Final readbacks confirmed the same Sprite/labels, the new connector
 still deny-all, and the original connector policy unchanged. No inference,
 model-list request, policy mutation or retry was made. This allowance is consumed.
 
+### Refreshed whole-day usage comparison
+
+Read-only inspection on **21 September 2026** compared the entire **18 September
+UTC day** for the original test connector with the Nebius project's Full numbers
+view. The gateway export contained **11 unique completed, known-usage, HTTP 200
+records**, totaling **21,851 input / 303 output tokens**. An independent
+server-side count also returned 11. The full-day query omitted the Sprite filter;
+all records nevertheless belonged to the expected test Sprite, and the export
+was byte-for-byte identical to the saved September 18 batch. No request crossed
+the UTC-day boundary.
+
+Nebius displayed **0.021851 million input / 0.000303 million output tokens** for
+the same model and day: **0% difference**. Its displayed update time was
+20 September at 23:17 UTC, after the accounting day ended. This closes the
+previous window/freshness and connector-log-count gaps, but does not independently
+establish which project owned the connector's key or exclude unrelated traffic
+in that project. Those confirmations remain necessary for an attributable V10
+pass. Private project/connector identities and source evidence stay outside Git.
+No inference, key access or external mutation was performed during this review.
+
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
 | S1 | Historical live connector injection check passed; retain original dated evidence |
 | S2 | Historical invalid-caller-key override check passed; retain original dated evidence |
 | S3 | Fresh `b880115` batch above: Chat Completions and Responses each completed with 50 deltas spread over approximately 1.83s |
 | S4 | GET denials and one POST `/files` policy 403 observed; test policy remains intentionally narrower than the full proposed allowlist |
-| S5 | Authorized production inspection on September 17 found 12 unique completed usage records with the expected connector/Sprite attribution; server-side count also 12 |
+| S5 | September 21 full-day inspection found the same 11 attributed completed usage records as the September 18 batch; independent server-side count also 11. Earlier September 16 evidence remains dated evidence |
 | S6 | Fresh `b880115` owned service/source readiness and confined Claude edit/test round trip passed |
 | B1 | Repo, licenses and secret-scan CI implemented; 283-test gap-closure baseline at `4c82e1d` passed both private PR and push CI checks |
 | B2 | V5–V7 passed at `b880115` using real configurator-written files; normal sourced on/off and restoration verified |
@@ -138,7 +158,7 @@ model-list request, policy mutation or retry was made. This allowance is consume
 | V5–V7 | Fresh scoped exact-OK checks passed at `b880115` |
 | V8 | Fresh confined edit/test task, five stream deltas and independent test passed at `b880115` |
 | V9 | Fresh single empty POST `/files` at 01:58:53 UTC returned 403 with the expected gateway policy error; independent no-dispatch tracing is optional |
-| V10 | Gateway: 27,100 input / 262 output tokens, exactly matching the recorded provider day view (0% difference). Project binding, aligned accounting windows and complete usage coverage still need confirmation; financial settlement is not required |
+| V10 | Refreshed September 18 whole-day comparison: 21,851 input / 303 output tokens on both sides (0% difference), with fresh provider data and full-day connector count verified. Key-to-project binding and absence of unrelated project traffic still need confirmation; financial settlement is not required |
 
 ## Current state
 

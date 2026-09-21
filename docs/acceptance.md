@@ -322,9 +322,12 @@ approved larger scan on 21 September completed the declared regular-file and
 live-environment scope with no matches, read/race gaps or cap hits. This is a
 point-in-time scoped V1 pass, not a historical/lifecycle or universal absence
 guarantee; its exclusions are recorded in the checklist. Earlier authorized
-gateway inspection established S5 attribution and an exact numerical match to
-the recorded Nebius day view; V10 still needs project binding and a matching,
-complete accounting scope. Production's
+gateway inspection established S5 attribution. On 21 September, refreshed
+September 18 whole-day provider totals matched the gateway's 21,851 input /
+303 output tokens exactly. A full-day connector export and independent
+server-side count both contained the same 11 requests; the provider display
+was updated after that UTC day ended. V10 still needs key-to-project binding
+and confirmation that the project had no unrelated traffic. Production's
 connector Test button is available, but Gateway Playground itself is gated
 behind development mode. Staff-assisted reconciliation is the proposed v0
 workflow, not a customer self-service export or an already-approved change to

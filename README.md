@@ -82,7 +82,7 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 | V1 | Point-in-time check passed in the declared regular-file/live-environment scope: 180,929 files, 3 environments, no key matches or cap hits; see the checklist for exclusions and security-review limits |
 | V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
 | V9 | One POST `/files` returned the required policy 403; dispatch tracing is optional extra assurance |
-| V10 | Gateway totals match the observed Nebius day-view counts exactly; project binding, aligned windows and complete accounting still need confirmation |
+| V10 | Refreshed September 18 whole-day totals match exactly (21,851 input / 303 output); full-day connector log count verified. Key-to-project binding and absence of unrelated project traffic still need confirmation |
 | Build completion | Approved live validation of the complete coordinator, V4/V10 operator-input acceptance and independent unaided-admin setup trial; activation/restoration already tested |
 | Launch | Security sign-off, publishing and partnership outreach, with authorization |
 
