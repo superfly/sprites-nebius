@@ -3,8 +3,9 @@
 `scripts/verify suite` coordinates the existing probes and native-agent tests.
 It previews by default. It does **not** create Sprites/connectors, upload code,
 install agents, start the adapter or change policy/labels. The complete
-coordinator still needs an explicitly approved live trial. Activation/restoration
-and standalone streamed collection have been exercised separately; see the
+coordinator was exercised live on 21 September at `fda0632`: every executed
+operation passed and cleanup was independently verified. V1 scope acceptance,
+V4 evidence and V10 reconciliation for that run remain outstanding; see the
 [dated results and coverage limits](status.md).
 
 ## Prepare an explicit plan

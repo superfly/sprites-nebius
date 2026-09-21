@@ -13,8 +13,8 @@ have been observed live. Codex, OpenCode and Pi returned exactly `OK`; Claude
 edited a confined fixture and ran its test through the local adapter. These
 16 September checks used Qwen3-30B-A3B-Instruct-2507 and the exact versions in
 [the checklist](docs/status.md), not every model or arbitrary coding tasks.
-All four agents passed again at `b880115` on 18 September UTC, including normal
-shell activation/restoration and the confined Claude edit/test check.
+All four agents passed again in the two-Sprite coordinator at `fda0632` on
+21 September UTC, with scoped key capture and independently verified cleanup.
 No real Nebius key belongs in this repository, a Sprite, or a command-line
 argument.
 
@@ -40,8 +40,8 @@ argument.
   gated, confined Claude edit/test fixture with independent result validation.
 - `scripts/verify suite`: dry-plan-first host coordinator, immutable dispatch
   checkpoints, scoped streaming key scan and reviewed V4/V10 evidence inputs.
-  See [coordinated verification](docs/verification.md); the complete coordinator
-  still needs a live trial, distinct from the standalone checks below.
+  The 21 September live trial passed every executed operation; reviewed
+  acceptance inputs remain open. See [coordinated verification](docs/verification.md).
 - Offline tests, canonical template checks, pinned dependencies and redacted
   Git/current-source secret scanning in CI. Ordinary CI never spends inference.
 
@@ -75,15 +75,15 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 
 | Gate | Still required |
 | --- | --- |
-| S1–S3 | Authentication/caller-key replacement recorded; both streaming routes observed incrementally on 2026-09-16 with Qwen3-30B-A3B-Instruct-2507 |
+| S1–S3 | Authentication/caller-key replacement and both incremental streaming routes passed again at `fda0632` on 21 September with Qwen3-30B-A3B-Instruct-2507 |
 | S4 | Full intended policy/path coverage; existing approved test policy remains narrower |
 | S5 | Verified in production usage records for the 2026-09-16 batch; private identifiers and logs retained outside this repository |
 | S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
-| V1 | Point-in-time check passed in the declared regular-file/live-environment scope: 180,929 files, 3 environments, no key matches or cap hits; see the checklist for exclusions and security-review limits |
+| V1 | Four agent captures and the final scan passed with no key matches or cap/read/race gaps; final scan covered 180,945 files and 4 live environments. Lifecycle-scope acceptance remains required |
 | V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
 | V9 | One POST `/files` returned the required policy 403; dispatch tracing is optional extra assurance |
-| V10 | Reviewed September 18 comparison passed: 21,851 input / 303 output on both sides, with project ownership and exclusive test use confirmed by the operator. This is manual evidence, not a complete automated reconciliation run |
-| Build completion | Approved live validation of the complete coordinator, V4/V10 operator-input acceptance and independent unaided-admin setup trial; activation/restoration already tested |
+| V10 | Reviewed September 18 comparison passed: 21,851 input / 303 output on both sides, with project ownership and exclusive test use confirmed by the operator. September 21 batch reconciliation remains outstanding |
+| Build completion | V1 scope review, V4/V10 evidence and operator-input boundary acceptance, plus independent unaided-admin setup trial; the complete coordinator and cleanup have now been exercised live |
 | Launch | Security sign-off, publishing and partnership outreach, with authorization |
 
 The full scope remains the four-agent integration. We are not implementing a

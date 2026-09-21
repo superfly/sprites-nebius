@@ -30,7 +30,7 @@ silently relabeled for a later commit. No full 25-requirement pass is claimed.
 The pre-PR hardening review itself was offline; the separately authorized
 Claude rerun above provides live evidence for its final implementation.
 
-### Latest approved agent batch
+### Standalone agent batch — 18 September
 
 On **18 September 2026, 01:57:40–01:58:55 UTC**, clean revision `b880115`
 passed the normal sourced on/off workflow and current-source owned-service
@@ -138,46 +138,91 @@ credential inspection or a new live test of later code.
 The strict whole-day reconciliation importer was not marked passed: the saved
 query used log-event time and did not establish a gateway ingestion watermark.
 No missing metadata was fabricated. B4's fully automated source collection and
-the complete coordinator trial remain open. Private project/connector identities
-and source evidence stay outside Git.
+the complete coordinator trial remained open at that point. Private project/
+connector identities and source evidence stay outside Git.
 No inference, key access or external mutation was performed during this review.
+
+### Coordinated live verification — 21 September
+
+At clean revision **`fda0632`**, the complete two-Sprite coordinator ran from
+**04:28:15 to 04:36:33 UTC**. Every operation completed once, with no retry.
+The laptop and unlabeled-Sprite denials passed, as did connector authentication,
+caller-key replacement, both incremental streaming routes, GET policy denials,
+all four pinned agents, and the empty POST `/files` policy denial. Codex,
+OpenCode and Pi returned exact `OK`; Claude passed the confined edit/test fixture.
+The two direct streaming requests each requested at most 256 output tokens;
+native invocations are not exact upstream-request or spending caps.
+
+Each agent's initial environment and pre-cleanup fixture capture passed the
+host-only key matcher. The final scan passed across **180,945 regular files,
+4 live environments and 10,438,064,846 bytes**, finding no key matches. Across
+all five stages there were 181,222 file observations, 8 environment observations
+and 10,458,587,881 bytes, with zero matches, unreadable objects, detected races
+or cap hits. These are cumulative observations, not necessarily unique objects.
+The final scan excluded 1,638 symlink/device/virtual objects; `/dev/shm` was
+included. Memory, deleted files, xattrs, transformed copies and later environment
+mutations remain outside scope. The key stayed on the host; raw capture bytes
+were neither printed nor retained.
+
+The separately approved wrapper temporarily granted only the dedicated test
+connector's narrow policy, configured the agents and started the owned adapter.
+Deny-all was restored after all provider-facing operations, during the final
+scan. Cleanup and independent readback confirmed all nine managed-file
+candidates matched baseline, no active/pending/service ownership markers,
+no remaining owned service or port-8083 listener, and unchanged Sprite labels
+and original connector policy. Private staging and backups remain.
+
+The coordinator correctly reports **`verification_complete: false`**:
+V1 is `scan_scope_review_required` because no reviewed scope-acceptance artifact
+was supplied; V4 and V10 are `not_observed`. Permission to capture is not security
+acceptance. The September 18 manual usage comparison is not evidence for this
+new batch. `all_checks_automated` and `full_spec_verified` also remain false.
+The live allowance is consumed; evidence-only imports need not repeat inference.
+Private plans, checkpoints and original evidence remain outside Git.
 
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
-| S1 | Historical live connector injection check passed; retain original dated evidence |
-| S2 | Historical invalid-caller-key override check passed; retain original dated evidence |
-| S3 | Fresh `b880115` batch above: Chat Completions and Responses each completed with 50 deltas spread over approximately 1.83s |
+| S1 | Connector injection check passed again in the `fda0632` coordinator |
+| S2 | Invalid-caller-key override check passed again in the `fda0632` coordinator |
+| S3 | Both Chat Completions and Responses passed incremental-delivery checks in the `fda0632` coordinator |
 | S4 | GET denials and one POST `/files` policy 403 observed; test policy remains intentionally narrower than the full proposed allowlist |
 | S5 | September 21 full-day inspection found the same 11 attributed completed usage records as the September 18 batch; independent server-side count also 11. Earlier September 16 evidence remains dated evidence |
-| S6 | Fresh `b880115` owned service/source readiness and confined Claude edit/test round trip passed |
+| S6 | Current-source owned-service readiness and confined Claude edit/test round trip passed at `fda0632` |
 | B1 | Repo, licenses and secret-scan CI implemented; 283-test gap-closure baseline at `4c82e1d` passed both private PR and push CI checks |
 | B2 | V5–V7 passed at `b880115` using real configurator-written files; normal sourced on/off and restoration verified |
 | B3 | V8 and normal sourced activation/service readiness/restoration passed at `b880115`; previous service lifecycle observations remain dated evidence |
-| B4 | Cross-context coordinator and streamed collector implemented with offline tests; standalone collection exercised live, but the complete coordinator trial and V4/V10 operator-input boundary acceptance remain open |
+| B4 | Complete cross-context coordinator and streamed collector exercised live at `fda0632`; V1 scope review, V4/V10 evidence and automated-collection/operator-input acceptance remain open |
 | B5 | Conditional quickstart, exact candidate installation pins and connector guide written; independent unaided-admin acceptance still required |
 | B6 | Guide implemented; reviewed September 18 V10 comparison passed after operator project/exclusive-use confirmation. Automated acquisition remains part of B4 |
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
 | L2 | Private repository/internal PR authorized; public release and ecosystem listing remain pending explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
-| V1 | Point-in-time scoped check passed at `1d3317d`: no matches in 180,929 regular files and 3 live environments, with no cap/read/race gaps; exclusions and historical/lifecycle limits are recorded above |
-| V2 | Standalone laptop GET returned expected 401 on 18 September at 03:34:58 UTC, using the verifier from `826a930` |
-| V3 | Standalone unlabeled-Sprite GET returned expected 403 on 18 September at 03:39:20 UTC, using the verifier from `826a930` |
+| V1 | All four agent captures and final scan passed at `fda0632`, with no key matches or cap/read/race gaps; coordinator acceptance remains inconclusive pending review of the declared lifecycle scope |
+| V2 | Laptop GET returned expected 401 in the `fda0632` coordinator |
+| V3 | Unlabeled-Sprite GET returned expected 403 in the `fda0632` coordinator |
 | V4 | Production connector Test returned 200, but omits model-list evidence; Playground is development-gated. Exact specified route or an explicitly accepted complete alternative remains required |
-| V5–V7 | Fresh scoped exact-OK checks passed at `b880115` |
-| V8 | Fresh confined edit/test task, five stream deltas and independent test passed at `b880115` |
-| V9 | Fresh single empty POST `/files` at 01:58:53 UTC returned 403 with the expected gateway policy error; independent no-dispatch tracing is optional |
-| V10 | Reviewed September 18 comparison passed: 21,851 input / 303 output tokens on both sides (0% difference), with operator-confirmed project ownership/exclusive use. Manual evidence, not a passing strict whole-day import or financial-settlement claim |
+| V5–V7 | Scoped exact-OK checks passed at `fda0632` |
+| V8 | Confined edit/test task and independent fixture verification passed at `fda0632` |
+| V9 | Single empty POST `/files` returned 403 with the expected gateway policy error at `fda0632`; independent no-dispatch tracing is optional |
+| V10 | Reviewed September 18 comparison passed: 21,851 input / 303 output tokens on both sides (0% difference), with operator-confirmed project ownership/exclusive use. Manual evidence, not a passing strict whole-day import or financial-settlement claim; September 21 batch reconciliation remains outstanding |
 
 ## Current state
 
 The gap-closure implementation adds one-command Bash/Zsh activation, tests of
 actual configurator-written agent files, cross-context verification and a
 non-persistent streamed scanner. The approved batches above supply live
-evidence for activation, isolated native-agent/probe paths and the declared
-point-in-time V1 scope, not the full lifecycle coordinator or a universal
-key-absence guarantee.
+evidence for activation, native-agent/probe paths and the full lifecycle
+coordinator within the declared capture scope, not a universal key-absence
+guarantee or completed V1/V4/V10 acceptance.
 Independent acceptance and launch approval remain outstanding.
 See [verification](verification.md) for permissions and remaining gates.
+
+Before the coordinated trial, **299 offline tests passed locally and on the
+labeled Sprite**. Two regressions cover treating API `labels: null` as no labels
+without accepting malformed labels or weakening the labeled-Sprite guard.
+All 22 Python files parsed; source secret scan and whitespace checks passed.
+Five additional local wrapper tests covered policy restoration, already-denied
+and concurrently changed policies, ambiguous grants, and exact approved budgets.
 
 Local gap-closure validation on 18 September: 283 offline tests passed, including
 local fixture HTTP servers, Bash/Zsh activation and streamed-capture fault tests.

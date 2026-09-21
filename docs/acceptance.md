@@ -301,8 +301,11 @@ private key access have been explicitly approved.
 
 ## Remaining live gates
 
-The [coordinator](verification.md) combines the V1–V10 checks, but its complete
-live trial and acceptance of operator-supplied V4/V10 evidence remain open.
+The [coordinator](verification.md) combines the V1–V10 checks. Its 21 September
+live trial passed every executed operation, including four agent captures and
+the final filesystem/environment scan, with independently verified cleanup.
+V1 lifecycle-scope review, V4 evidence and V10 reconciliation for that batch
+remain outstanding, as does acceptance of the operator-input boundary.
 Preserve standalone probe timestamps and requirement scope rather than treating
 them as a completed coordinated run. V4's proposed equivalent is the existing
 production per-Sprite connector **Test**, which executes a gateway `/models`
