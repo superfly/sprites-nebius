@@ -77,8 +77,8 @@ environments directly to the host-only exact-key matcher, without retaining or
 printing raw capture data or sending the key to the Sprite. It sampled 85,172
 files and 3 environments (4,294,945,515 bytes), finding **zero matching objects**
 and no unreadable objects or detected races. It excluded 1,560 objects under its
-declared scope and reached the approved **4 GiB byte cap**, so **V1 remains
-inconclusive**. This is point-in-time evidence for the new test key, not proof
+declared scope and reached the approved **4 GiB byte cap**, leaving **V1
+inconclusive at that point**. This is point-in-time evidence for the new test key, not proof
 about historical agent executions or a complete filesystem scan.
 
 The standalone wrapper completed successfully; its exit zero does not mean V1
@@ -87,6 +87,32 @@ and fresh permission. The tested revision's 4 GiB implementation ceiling was
 subsequently raised for explicitly budgeted future runs; this does not extend
 the consumed allowance or change this result. Private resource identifiers,
 source hashes and metadata-only checkpoints remain outside this repository.
+
+### Completed point-in-time key scan
+
+On **21 September 2026, 01:15:10–01:21:57 UTC**, a separately approved scan at
+revision `1d3317d` completed the declared regular-filesystem and current-process
+environment scope. A preceding metadata-only inventory measured 180,925 regular
+files totaling 9.72 GiB, explaining why the earlier 4 GiB allowance was too small.
+
+The host-only matcher found **zero key matches** across **180,929 regular files
+and 3 live process environments**, totaling **10,437,647,358 bytes (9.72 GiB)**.
+The file count increased by four, matching the four newly staged keyless source
+files. There were **no unreadable objects, detected races or cap hits**. The
+single scan took 407.4 seconds, within its approved 16 GiB / 400,000-object /
+20-minute ceiling; the matcher reported `no_match_in_declared_scope`.
+
+This passes the **point-in-time scoped V1 check**, not a universal absence or
+historical-agent guarantee. The collector excluded 1,638 symlink/device/virtual
+objects; `/dev/shm` was included. Memory, deleted files, xattrs and transformed
+copies were not searched. Earlier agent process environments cannot be recovered
+by this scan. These explicit limits remain part of the security-review handoff;
+the complete lifecycle coordinator was not run.
+
+The key stayed on the trusted host. Raw captured bytes were neither stored nor
+printed. Final readbacks confirmed the same Sprite/labels, the new connector
+still deny-all, and the original connector policy unchanged. No inference,
+model-list request, policy mutation or retry was made. This allowance is consumed.
 
 | Requirement | Current evidence / remaining gate |
 | --- | --- |
@@ -105,7 +131,7 @@ source hashes and metadata-only checkpoints remain outside this repository.
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
 | L2 | Private repository/internal PR authorized; public release and ecosystem listing remain pending explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
-| V1 | Authorized point-in-time scan at `826a930` found no matches but hit its 4 GiB cap; incomplete coverage is inconclusive, not a pass |
+| V1 | Point-in-time scoped check passed at `1d3317d`: no matches in 180,929 regular files and 3 live environments, with no cap/read/race gaps; exclusions and historical/lifecycle limits are recorded above |
 | V2 | Standalone laptop GET returned expected 401 on 18 September at 03:34:58 UTC, using the verifier from `826a930` |
 | V3 | Standalone unlabeled-Sprite GET returned expected 403 on 18 September at 03:39:20 UTC, using the verifier from `826a930` |
 | V4 | Production connector Test returned 200, but omits model-list evidence; Playground is development-gated. Exact specified route or an explicitly accepted complete alternative remains required |
@@ -119,8 +145,9 @@ source hashes and metadata-only checkpoints remain outside this repository.
 The gap-closure implementation adds one-command Bash/Zsh activation, tests of
 actual configurator-written agent files, cross-context verification and a
 non-persistent streamed scanner. The approved batches above supply live
-evidence for activation, isolated native-agent/probe paths and bounded
-standalone collection, not the full coordinator or complete V1 coverage.
+evidence for activation, isolated native-agent/probe paths and the declared
+point-in-time V1 scope, not the full lifecycle coordinator or a universal
+key-absence guarantee.
 Independent acceptance and launch approval remain outstanding.
 See [verification](verification.md) for permissions and remaining gates.
 
@@ -147,8 +174,8 @@ Python 3.12+ template runtime. No new native-agent invocation was made.
 Follow-up local validation on 21 September: **297 offline tests passed** under
 Python 3.12.14 with all 17 dependency versions matching the repository pins.
 The larger explicit scan ceilings preserve standalone defaults, chunk sizes,
-per-run limits and no-retry/resume guards. No larger live scan was performed;
-the earlier cap-limited V1 result remains inconclusive.
+per-run limits and no-retry/resume guards. That validation preceded the separately
+approved successful live scan recorded above; it did not itself establish V1.
 
 After the original four-agent batch, all seven managed files matched their
 original bytes following `configure --off`. After the post-hardening Claude

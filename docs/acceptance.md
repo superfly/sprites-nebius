@@ -317,10 +317,13 @@ explicit steps; missing permission or unavailable evidence is not a pass.
 The 16 September live smoke run passed V5–V8 and observed the required policy
 403 for V9. See [status](status.md) for exact versions and revisions. Those
 observations do not supply V1 capture evidence. The separately approved
-20 September key scan found no matches but hit its byte cap, leaving V1
-inconclusive. Earlier authorized gateway inspection established S5 attribution
-and an exact numerical match to the
-recorded Nebius day view; V10 still needs project binding and a matching,
+20 September key scan found no matches but hit its byte cap. A separately
+approved larger scan on 21 September completed the declared regular-file and
+live-environment scope with no matches, read/race gaps or cap hits. This is a
+point-in-time scoped V1 pass, not a historical/lifecycle or universal absence
+guarantee; its exclusions are recorded in the checklist. Earlier authorized
+gateway inspection established S5 attribution and an exact numerical match to
+the recorded Nebius day view; V10 still needs project binding and a matching,
 complete accounting scope. Production's
 connector Test button is available, but Gateway Playground itself is gated
 behind development mode. Staff-assisted reconciliation is the proposed v0

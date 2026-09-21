@@ -79,7 +79,7 @@ The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
 | S4 | Full intended policy/path coverage; existing approved test policy remains narrower |
 | S5 | Verified in production usage records for the 2026-09-16 batch; private identifiers and logs retained outside this repository |
 | S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
-| V1 | Authorized scan found no key matches in 85,172 files and 3 process environments, but hit its 4 GiB cap; complete declared coverage remains unproven |
+| V1 | Point-in-time check passed in the declared regular-file/live-environment scope: 180,929 files, 3 environments, no key matches or cap hits; see the checklist for exclusions and security-review limits |
 | V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
 | V9 | One POST `/files` returned the required policy 403; dispatch tracing is optional extra assurance |
 | V10 | Gateway totals match the observed Nebius day-view counts exactly; project binding, aligned windows and complete accounting still need confirmation |
