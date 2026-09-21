@@ -1,187 +1,109 @@
-# Configure agents inside a Sprite
+# Configure and restore agents
 
-This setup passed a four-agent live smoke test with one model and pinned CLI
-versions; it is **not broad model compatibility or release certification**.
-The five-minute path below assumes an existing authorized connector, a labeled
-Sprite, a reviewed checkout at its final path, its Python environment, and all
-selected agents already installed. It excludes administrative setup,
-installation, paid validation, and the independent unaided-admin acceptance
-test. See [connector setup](connector-setup.md) and [installation](installation.md)
-first if those prerequisites are missing.
+Complete [connector setup](connector-setup.md) and [installation](installation.md)
+first. Run from the repository root inside the intended Sprite, in Bash or Zsh.
+The real Nebius key stays in the connector; the configurator uses
+`sprites-nebius-placeholder-not-a-secret`.
 
-The real Nebius key belongs only in the connector. Configuration uses the
-deliberately harmless `sprites-nebius-placeholder-not-a-secret` value; this is
-not a credential or an isolation boundary between processes in the same Sprite.
-
-## Conditional five-minute setup
-
-Run these commands **inside the intended Sprite**, from the repository root.
-They read gateway discovery and the model list but do not send inference.
-
-1. Inspect the visible connector and models:
-
-   ```sh
-   .venv/bin/python scripts/verify discover
-   .venv/bin/python scripts/configure --dry-run
-   ```
-
-   By default configure requires `codex`, `opencode`, `pi`, and `claude` on
-   `PATH`. If one is missing, it fails before writing agent configurations; it
-   does not silently omit the agent or install it. For a deliberate subset,
-   add `--agents codex,opencode,pi` (or another comma-separated selection) to
-   both discovery/configuration commands that invoke `scripts/configure`.
-   With multiple matching Nebius connectors, add
-   `--connector CONNECTION_ID`; there is no implicit first-match selection.
-
-2. Copy an exact model ID from discovery. In **Bash or Zsh**, review the dry run,
-   then enable the same selection with one sourced command:
-
-   ```sh
-   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --dry-run
-   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
-   ```
-
-   Replace the example model ID; retain any `--agents` or `--connector` flags
-   you selected above. Source the helper in each shell that launches native
-   agents: a child Python process cannot update its parent's environment.
-   It configures the selected agents, starts and checks the owned Claude service
-   when selected, and only then exports the harmless placeholder and its shell
-   ownership marker. It refuses conflicting or readonly shell variables and
-   never changes shell startup files, PATH, the working directory or shell options.
-   It applies fixed placeholder exports directly, without sourcing generated
-   helper files or evaluating Python output. Option names must be written in full.
-   A pre-existing placeholder is not claimed or removed. Do not substitute a
-   real key. Discovery proves a model exists, not that it supports an agent's
-   reasoning, context limits, tools, or wire protocol. See the narrowly tested
-   agent/model matrix in [the checklist](status.md).
-
-   The approval flag is required for actual Claude service changes, not for a
-   dry run or a non-Claude selection. It records intent, not permission: obtain
-   service-creation authority first. Readiness checks only local `/health`, for
-   at most ten seconds after creation, and cannot spend inference. Another
-   listener on port 8083 is never stopped or replaced. The service binds only
-   `127.0.0.1:8083`; never expose it through a public HTTP service port.
-
-   A confirmed newly created service that fails readiness is removed, and new
-   configuration is restored. Pre-existing configuration/services are preserved.
-   Uncertain creation or cleanup retains private ownership/recovery state and
-   fails without activating the shell; inspect it before retrying or switching
-   off. No creation is retried automatically. Repeat successful `on` is idempotent.
-   Local readiness is not Claude tool-task acceptance. See
-   [proxy behavior and limits](../proxy/README.md).
-
-The low-level `.venv/bin/python scripts/configure` remains available for
-configuration-only automation and does not start services unless explicitly
-passed `--activate`. Its `source` output names the helper needed to update the
-current shell; prefer `scripts/use-nebius` for ordinary interactive use.
-
-Stop here unless agent execution and its spending are separately authorized.
-Agent prompts and tool loops can make several billable requests, even when
-their final answer is short. Setup flags do not grant an inference allowance.
-Use the [acceptance procedure](acceptance.md) to record genuine V5–V8 evidence,
-including independent verification of Claude's file edit and test result.
-
-After fresh approval for native agent inference, dry-plan an explicit selection:
+## Enable
 
 ```sh
-.venv/bin/python scripts/verify-agents --agents codex,opencode,pi
+.venv/bin/python scripts/verify discover
+.venv/bin/python scripts/configure --dry-run
+source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --dry-run
+source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
 ```
 
-Then add `--approve-agent-runs` only for the approved batch. The runner checks
-the pinned executable versions, uses fresh temporary agent homes, disables
-tools/plugins where the native CLI supports it, accepts only an exact `OK`,
-does not retry, and stops the batch after the first non-pass. A timeout is not a
-request or spend cap: a native agent may make more than one provider request.
-Claude additionally requires explicit approval for a confined edit/test task:
+Choose an exact model ID from discovery. By default all four agents must be on
+PATH; missing executables fail before configuration changes. For a subset, add
+`--agents codex,opencode,pi` (or another selection) to the configure/on commands.
+With multiple matching connectors, also pass `--connector CONNECTION_ID`.
+Discovery proves a model exists, not that it supports an agent's protocol,
+reasoning or tools; see [tested compatibility](status.md).
 
-```sh
-.venv/bin/python scripts/verify-agents --agents claude --timeout 180 \
-  --approve-agent-runs --approve-claude-fixture
-```
+Source the helper in each shell that will launch agents. It writes configuration,
+starts/checks the owned Claude service when selected, then exports the placeholder.
+It never edits startup files, PATH, shell options or the working directory.
+Conflicting/readonly shell variables fail; pre-existing placeholders are not
+claimed. Options must be spelled in full.
 
-Run it only on the intended dedicated test Sprite, with the owned proxy healthy.
-It uses Claude's restricted mode, fresh home/work directories, only Read/Edit/Bash,
-and a fail-closed PreToolUse hook. The hook permits one arithmetic edit and a
-fixed test command; it rejects other paths, commands, symlinks, changed tests,
-and any bytes outside the exact harmless arithmetic fixture, including encoding
-declarations or extra comments. It does not use blanket
-permission bypasses. The verifier requires successful edit/test tool results,
-stream events and an independent test rerun. Six agentic turns and a timeout
-bound execution but are not a strict provider-request or dollar cap. This
-fixture depends on the reviewed CLI and a trusted test Sprite; it is not a
-general-purpose sandbox for arbitrary agent-written programs.
+The service approval flag is needed only when changing the Claude service.
+Dry runs do not change files, services or the shell. Setup makes discovery/model
+GETs, not inference requests. Run agents only after authorizing their spending;
+a short prompt can cause several billable requests.
 
-## What configure owns
+For configuration-only automation, use `.venv/bin/python scripts/configure`.
+It does not manage services unless given `--activate`, and cannot export variables
+to its parent shell. The sourced helper is the usual interactive entry point.
 
-Configuration and aggregate recovery records must each fit the 2 MiB limit.
-Setup checks both its apply journal and future restore journal before editing
-files; base64 snapshots mean the total supported source size is smaller than
-2 MiB. Oversized setups fail with guidance to reduce config size or select
-fewer agents. Later unrelated edits are checked again before restoration or
-stopping the owned service.
+## Managed configuration
 
-| Agent | User-level file | Managed routing |
+| Agent | User-level files | Routing |
 | --- | --- | --- |
-| Codex | `~/.codex/config.toml` | `nebius` provider, Responses wire API, exact discovered gateway, placeholder environment key; request/stream retries set to zero |
-| OpenCode | `~/.config/opencode/opencode.json`, or an existing `.jsonc` | Built-in `nebius` provider's `options.baseURL` and placeholder `apiKey`, selected model |
-| Pi | `~/.pi/agent/models.json` and `settings.json` | `nebius`, `openai-completions`, `$SPRITES_NEBIUS_PLACEHOLDER`, selected model/default provider; automatic retry disabled |
-| Claude Code | `~/.claude/settings.json` | Loopback proxy, placeholder auth, explicit model aliases, request retries and Anthropic thinking disabled |
+| Codex | `~/.codex/config.toml` | `nebius` provider, Responses API, placeholder environment variable, zero request/stream retries |
+| OpenCode | `~/.config/opencode/opencode.json` or existing `.jsonc` | Built-in `nebius` provider's base URL, placeholder key, selected model |
+| Pi | `~/.pi/agent/models.json`, `settings.json` | `nebius`, Chat Completions, `$SPRITES_NEBIUS_PLACEHOLDER`, automatic retry disabled |
+| Claude | `~/.claude/settings.json` | Loopback adapter, placeholder, explicit model aliases, retries and thinking disabled |
 
-Readable reference templates are in `templates/`; do not copy them wholesale
-over an existing configuration. The configurator merges only owned settings,
-preserves unrelated fields and comments, and keeps other configured Pi models.
-Codex configuration is user-level, not a project provider block. Pi's leading
-`$` is intentional: an unprefixed variable name would be a literal API key.
-These mappings follow the current [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-sample),
-[OpenCode provider configuration](https://opencode.ai/docs/providers/),
-[Pi models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md),
-[Pi defaults](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/settings.md),
-and [Claude environment reference](https://code.claude.com/docs/en/env-vars).
+Reference templates are in `templates/`; do not overwrite existing configurations
+with them. The configurator preserves unrelated fields/comments and other Pi
+models. Codex providers are user-level; Pi's leading `$` denotes an environment
+variable rather than a literal key.
 
-Existing provider credentials, custom authentication headers/commands, symlinked
-configuration paths, ambiguous OpenCode JSON/JSONC files, and redirected config
-locations fail closed. Resolve them yourself before retrying; the tool must not
-erase a real credential or guess which configuration you intended. Run from a
-clean shell without `CODEX_HOME`, `OPENCODE_CONFIG*`, `PI_CODING_AGENT_DIR`,
-`CLAUDE_CONFIG_DIR`, or `XDG_CONFIG_HOME` overrides. Custom provider environment
-variables and project-local settings may also override user settings. For live
-acceptance, inspect those layers and use a clean fixture directory without
-project provider overrides, hooks, or unrelated extensions.
+Existing provider credentials, custom authentication, symlinks, ambiguous
+OpenCode JSON/JSONC files and redirected config paths fail closed. Resolve the
+conflict yourself; the tool will not erase a credential or guess the intended file.
+Use a shell without `CODEX_HOME`, `OPENCODE_CONFIG*`, `PI_CODING_AGENT_DIR`,
+`CLAUDE_CONFIG_DIR` or `XDG_CONFIG_HOME` overrides. Project settings, hooks and
+extensions can also override routing; use a clean project for validation.
 
-## Restore safely
+Configuration and recovery records each have a 2 MiB ceiling; base64 backup
+overhead reduces the supported original size. Oversized changes fail before
+editing. Select fewer agents or reduce configuration size rather than bypassing
+the limit.
 
-Use the same checkout and user account:
+## Restore and recover
 
 ```sh
 source scripts/use-nebius off --dry-run
 source scripts/use-nebius off --approve-service-change
 ```
 
-`off` verifies all owned fields before changing anything. It stops and deletes
-only the exact service definition recorded by this setup, retaining runtime
-logs; arbitrary foreground processes and services created by another method
-are not owned. Stop those separately before considering the proxy disabled.
-If the owned service cannot be safely verified or stopped, configuration is
-left in place and the command fails; shell variables are untouched. Dry run
-never stops a service or changes the shell. On success, the sourced helper
-removes only the placeholder it introduced; user-changed values are preserved.
+The helper validates owned settings before changing anything, stops/removes only
+the recorded owned service definition, and retains runtime logs. It does not own
+arbitrary foreground processes or other services. A service conflict or uncertain
+cleanup leaves configuration and shell exports in place for inspection.
+See [service lifecycle](../proxy/README.md#service-lifecycle).
 
-Untouched files restore exactly. If unrelated fields changed later, restoration
-reverses only owned fields and retains those changes. If an owned field or
-helper changed, restoration stops with a conflict instead of clobbering it.
-The Pi custom-model list is conservatively owned as an array, so later edits to
-that list require manual review. Repeating the same setup is idempotent; use
-`--off` before changing the connector, agent subset, or model.
+Untouched files restore byte-for-byte. Later unrelated edits are preserved;
+changes to owned fields/helpers stop restoration with a conflict. Pi's custom
+model array is conservatively owned as a whole. Repeat identical setup is
+idempotent; switch off before changing model, connector or agent selection.
 
-Private originals, ownership state, and the interruption journal live beneath
-`~/.local/state/sprites-nebius/`; backup files have owner-only permissions. They
-may contain unrelated existing credentials from the original configuration, so
-never publish or upload this state directory. Interrupted updates recover from
-the journal only when files still match the expected before/after versions;
-later edits require manual review. Keep backups until restoration is reviewed.
+Private backups and interruption journals live in
+`~/.local/state/sprites-nebius/` with owner-only permissions. They may contain
+other credentials: never publish them. Recovery proceeds only when files match
+the journal's expected before/after states; inspect conflicts and retain backups.
+On success, the shell helper removes only exports it introduced and still owns.
+The retained `off.sh` can clear that placeholder from another already-open shell
+without unsetting a changed or pre-existing value.
 
-The harmless `off.sh` remains available so already-open shells can remove only
-the placeholder value this setup introduced. It does not unset a value changed
-by the user or a pre-existing placeholder. No startup files or real credential
-variables are rewritten. Neither successful configuration nor successful
-restoration sets `full_spec_verified` to true.
+## Optional live agent checks
+
+Preview the selected pinned-agent checks, then opt in only for an approved run:
+
+```sh
+.venv/bin/python scripts/verify-agents --agents codex,opencode,pi
+.venv/bin/python scripts/verify-agents --agents codex,opencode,pi --approve-agent-runs
+.venv/bin/python scripts/verify-agents --agents claude --timeout 180 \
+  --approve-agent-runs --approve-claude-fixture
+```
+
+The runner uses isolated temporary homes and real configurator-written files,
+accepts only exact `OK` for the first three agents, never retries, and stops on
+the first non-pass. Claude requires a healthy owned adapter and a dedicated test
+Sprite. Its restricted fixture allows one arithmetic edit and a fixed test,
+rejects other paths/commands/changed tests, and independently checks the result.
+It is not a general sandbox for arbitrary code. Six turns and timeouts do not
+bound provider request counts or cost. For cross-context checks and key scanning,
+use the [host-side suite](verification.md).

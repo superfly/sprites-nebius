@@ -1,152 +1,113 @@
-# Local Claude Code adapter
+# Claude Code adapter
 
-This adapter passed a **confined live S6/V8 smoke test** on 16 September 2026,
-using Claude Code 2.1.273 and Qwen3-30B-A3B-Instruct-2507. That is not security
-sign-off or broad model compatibility. It translates text/custom-tool Messages requests
-to Chat Completions through the configured Sprites Nebius connector. It never
-accepts or installs a provider key.
+A loopback-only adapter translates Claude Code's text/custom-tool Messages
+requests into Chat Completions through a Sprites Nebius connector. It never
+accepts or installs a real provider key, and never executes tools itself.
+See [tested compatibility](../docs/status.md) for the pinned agent/model checks.
 
-The same confined check passed again after hardening at `9fd19d4` on
-17 September UTC (18 September Melbourne), including real edit/test tool
-results, streaming, independent test validation and configuration restoration.
+## Install and start
 
-## Install and run after approval
-
-Requires Python 3.12+. Install the reviewed runtime in this directory:
-
-```sh
-python3.12 -m venv proxy/.venv
-proxy/.venv/bin/python -m pip install -r proxy/requirements.txt
-proxy/.venv/bin/python proxy/server.py --config "$HOME/.local/state/sprites-nebius/proxy.json"
-```
-
-`scripts/configure` writes the private JSON config. The standalone foreground
-command above does not create a Sprite service. Use the separate service
-lifecycle helper only when service creation is authorized. Never assign an HTTP
-service port, create a public Sprite URL for this listener, or bind it externally.
-
-For a managed service, use the same environment that has both runtime and
-configuration dependencies installed (see [agent setup](../docs/agent-setup.md)):
+Use Python 3.12+ and the combined environment from
+[installation](../docs/installation.md). Normal setup is:
 
 ```sh
 source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
 source scripts/use-nebius off --approve-service-change
 ```
 
-The sourced Bash/Zsh helper configures the selected agents, creates the service,
-checks local readiness, then activates the current shell. It supports `--dry-run`
-without any service or shell mutation. For service-only diagnostics after
-configuration, `.venv/bin/python proxy/service.py --start --approve-service-change`
-also waits for readiness but does not activate shell variables or roll back
-configuration on failure.
-
-The service has a unique name and a private ownership record. Start, stop and
-configuration restoration share a lock. Restoration validates unchanged owned
-settings, then stops and removes only the matching service definition; runtime
-logs remain. An uncertain create is never automatically retried or forgotten.
-The launcher uses an empty environment and isolated Python, with only PATH,
-HOME and a non-secret source fingerprint supplied. It never sets `--http-port`.
-
-Readiness requires the unchanged owned definition to be running and its fixed
-loopback `/health` endpoint to respond, within ten seconds after creation. No
-redirects, inherited HTTP proxies, or inference requests are used. Port 8083
-must be free before a new service is created; another listener is never evicted.
-The ownership record and service definition also bind the adapter source files
-and pinned requirements manifest. Changed sources or older records without a
-fingerprint cannot pass reuse/readiness: explicitly switch the owned setup off
-and activate it again after review. This detects ordinary stale-code reuse,
-not malicious process replacement or changes to installed dependencies. The
-explicit off path remains available for older owned services.
-If activation creates a confirmed service but readiness fails, only that new
-service is removed and configuration newly written by the invocation is restored.
-Existing setups are preserved. If creation or cleanup is uncertain, state remains
-for manual inspection and the shell is not activated; use the explicit off path
-only after checking the retained ownership record.
-
-Definition comparison and the runtime's name-based stop/delete API are separate
-operations, not an atomic conditional delete. Unique names and local locking
-protect normal concurrent setup mistakes; they are not a security boundary
-against another privileged Sprite process replacing services concurrently.
-Manual service changes cause a conflict requiring operator review.
-
-The config is a flat JSON object of string-valued settings:
-
-- `OPENAI_BASE_URL`: the exact `custom_api` gateway URL from Sprite discovery.
-- `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`: both exactly
-  `sprites-nebius-placeholder-not-a-secret`.
-- `BIG_MODEL`, `MIDDLE_MODEL`, `SMALL_MODEL`: explicitly selected Nebius model IDs.
-- `MAX_TOKENS_LIMIT`: default `16384`; accepted range `16384`–`65536`.
-- `REQUEST_TIMEOUT`: default `120`, maximum 120 seconds per upstream request.
-- Optional `HOST`/`PORT` must be `127.0.0.1`/`8083`; binding is fixed in code.
-
-No `.env` file is loaded or shell expression evaluated. Unknown settings fail
-closed. Without `--config`, only those named environment variables are read.
-Caller headers, system proxy settings, arbitrary custom headers and credentials
-are not forwarded. Only the fixed gateway Chat Completions path is used, with
-zero retries and no redirects. Configuring a proxy does not itself authorize
-inference; Claude tool loops can make many separately billable requests.
-
-Claude connects to `http://127.0.0.1:8083` with the same placeholder. This is
-interoperability configuration, **not a secret or isolation boundary** against
-another process already running inside the Sprite.
-Its generated settings request at most 16,384 output tokens per call to match
-the adapter ceiling, disable the retry watchdog, and set request retries to
-zero. That per-request limit is not a session cost cap.
-
-## Supported behavior and limits
-
-- Text output is incremental SSE; tool JSON is buffered until complete and
-  valid, then emitted as a serialized Anthropic tool block. Multi-turn client
-  tool results preserve the IDs and other text in the same user message.
-- The proxy never executes tools. Claude performs the requested file edits and
-  tests. Server-side web search, images/documents and Anthropic thinking blocks
-  are explicitly rejected; disable Claude thinking for this initial spike.
-- Text-only mid-conversation system messages retain their system role and
-  position. `clear_at: next_user_message` is honored; dynamic tool changes and
-  per-message effort are rejected. This compatibility was required by the real
-  Claude Code request, and follows [Anthropic's documented semantics](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages).
-- Streaming upstream errors become an SSE `error` without `message_stop`; a
-  client must not treat HTTP 200 alone as success. Invalid/truncated tool JSON
-  does not become an empty tool invocation.
-- Completion usage comes from the upstream final usage chunk; absent usage is
-  an error, not fabricated billing evidence. `/v1/messages/count_tokens` is only
-  a local character-based estimate, marked by `X-Token-Count-Estimate: true`.
-  That endpoint cannot establish V10 reconciliation.
-- Both response modes reject malformed tool calls, duplicate tool IDs and
-  tool/finish-reason mismatches before emitting tool blocks. The caller's
-  `disable_parallel_tool_use` flag is validated and mapped to the upstream
-  parallel-call control. Returned calls must respect the declared tools,
-  forced/disabled tool choice and single-call constraint. Stream completion
-  cannot be replaced by later deltas or conflicting finish markers; client
-  tool permissions remain the execution boundary.
-- Request and response bodies are bounded to 2 MiB. Streaming events, including
-  framing and empty fields, are bounded to 128 KiB and parsed in linear time
-  with cancellation checkpoints. Compressed upstream replies are rejected
-  before decoding. This per-Sprite loopback adapter is not a public multi-tenant
-  service or a per-user quota system.
-- `/health` is local-only and never makes an inference call. There is no
-  `/test-connection` spending endpoint. Request/response bodies are not logged;
-  safe errors omit provider error bodies.
-- Explicit upstream response cleanup runs on cancellation, disconnect, errors
-  and EOF. Tests cover cancellation before the first chunk and after a chunk;
-  a real gateway/provider cancellation smoke test remains outstanding.
-
-## Provenance and offline checks
-
-`vendor/SOURCE.json` records the exact upstream commit and source files for the
-minimal adapted converters. `vendor/LICENSE` retains the upstream MIT notice.
-The upstream app, unrestricted configuration and OpenAI SDK transport are not
-vendored. Runtime versions are independently pinned, including transitive
-dependencies, in `requirements.txt`.
+For a standalone foreground process after configuration:
 
 ```sh
-proxy/.venv/bin/python -m unittest discover -s tests -p 'test_proxy*.py' -v
+.venv/bin/python proxy/server.py --config "$HOME/.local/state/sprites-nebius/proxy.json"
 ```
 
-The dependency set was checked with `pip-audit 2.10.1` on 2026-09-16: no known
-vulnerabilities reported. This point-in-time advisory check is not proof of
-security; rerun it and the offline tests before release. The live task used a
-managed Sprite service, real Edit/Bash tool round trips and streamed events;
-the verifier independently reran the unchanged test. Service replacement,
-idempotent startup and configuration restoration were also exercised. Launch
-security review and the other [release gates](../docs/status.md) remain open.
+The foreground command does not create a Sprite service. Never expose port 8083
+through a public Sprite service/URL or bind it externally.
+
+## Service lifecycle
+
+The sourced helper configures agents, creates the owned service, checks readiness
+and only then activates the shell. A service-only diagnostic command is
+`.venv/bin/python proxy/service.py --start --approve-service-change`; unlike
+the sourced helper, it does not activate exports or roll back configuration.
+
+Start/stop/restoration share a lock. A unique service name and private ownership
+record identify the exact service definition; only that definition is removed.
+Runtime logs remain. The launcher uses isolated Python and an empty environment
+except PATH, HOME and a non-secret source fingerprint; no HTTP service port is set.
+
+Readiness checks the running owned definition and loopback `/health` for at most
+ten seconds, with no inference, redirects or inherited HTTP proxies. Another
+port-8083 listener is never evicted. The recorded source/requirements fingerprint
+must match before reuse; after source changes, explicitly switch off and back on.
+This catches stale source, not malicious process replacement or dependency changes.
+
+If a confirmed new service fails readiness, it is removed and newly applied
+configuration restored. Existing setups are preserved. Uncertain creation or
+cleanup retains recovery state without retry or shell activation; inspect before
+retrying. Definition comparison and name-based stop/delete are separate calls,
+not an atomic ownership-conditional delete. Local locking protects ordinary
+setup concurrency, not hostile privileged processes replacing a service.
+
+## Configuration
+
+The configurator writes a private flat JSON object. Allowed settings are:
+
+| Setting | Value |
+| --- | --- |
+| `OPENAI_BASE_URL` | Exact discovered `custom_api` gateway URL |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Exactly `sprites-nebius-placeholder-not-a-secret` |
+| `BIG_MODEL`, `MIDDLE_MODEL`, `SMALL_MODEL` | Explicitly selected model IDs |
+| `MAX_TOKENS_LIMIT` | Default 16384; range 16384–65536 |
+| `REQUEST_TIMEOUT` | Default/maximum 120 seconds per upstream request |
+| `HOST`, `PORT` | If set, exactly `127.0.0.1`, `8083` |
+
+Without `--config`, only these named environment variables are read. Unknown
+settings fail; no dotenv file or shell expressions are loaded. Caller headers,
+custom credentials and system proxy settings are not forwarded. Transport uses
+only the fixed gateway Chat Completions path, with zero retries and no redirects.
+
+Claude uses the same placeholder at `http://127.0.0.1:8083`; it is not a security
+boundary against other processes in the Sprite. Generated settings disable
+thinking, request retries and the retry watchdog, and request at most 16384
+output tokens per call. That limit does not cap session cost.
+
+## Supported behaviour and limits
+
+- Text streams incrementally; tool JSON is buffered until complete and validated.
+  Multi-turn tool results preserve IDs and other text in the same user message.
+- Images/documents, server-side web search and Anthropic thinking are rejected.
+  Text-only mid-conversation system messages retain role/position and
+  `clear_at: next_user_message`; dynamic tool changes and per-message effort
+  are rejected.
+- Invalid/truncated tool JSON, duplicate IDs, undeclared tools, tool-choice
+  violations and tool/finish-reason mismatches fail. Parallel calls must respect
+  the caller's `disable_parallel_tool_use` setting. Client permissions remain
+  the tool-execution boundary.
+- Stream errors emit an SSE error without `message_stop`; HTTP 200 alone does
+  not prove completion. Later deltas cannot replace a finished stream.
+- Completion usage requires the upstream final usage chunk.
+  `/v1/messages/count_tokens` is a character-based estimate marked by
+  `X-Token-Count-Estimate: true`, not billing evidence.
+- Bodies are bounded to 2 MiB and streaming events to 128 KiB, including framing.
+  Parsing is linear with cancellation checkpoints; compressed replies are
+  rejected before decoding. This is not a public multi-tenant/quota service.
+- `/health` makes no inference call. There is no spending test endpoint.
+  Bodies are not logged and errors omit provider response bodies.
+- Cancellation, disconnect, errors and EOF close upstream responses.
+  Cancellation is covered by offline tests; a live gateway/provider cancellation
+  smoke test remains outstanding.
+
+## Provenance and checks
+
+`vendor/SOURCE.json` records the pinned upstream commit and adapted converters;
+`vendor/LICENSE` retains their MIT notice. The upstream app and OpenAI SDK
+transport are not vendored. Runtime/transitive versions are pinned in
+`requirements.txt`.
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p 'test_proxy*.py' -v
+```
+
+A dependency audit on 16 September 2026 reported no known vulnerabilities.
+That is a dated observation, not security sign-off; rerun audits before release.

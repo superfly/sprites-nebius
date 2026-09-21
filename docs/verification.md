@@ -1,29 +1,21 @@
-# Coordinated verification (host-side)
+# Coordinated live verification
 
-`scripts/verify suite` coordinates the existing probes and native-agent tests.
-It previews by default. It does **not** create Sprites/connectors, upload code,
-install agents, start the adapter or change policy/labels. The complete
-coordinator was exercised live on 21 September at `fda0632`: every executed
-operation passed and cleanup was independently verified. V1 scope acceptance,
-V4 evidence and V10 reconciliation for that run remain outstanding; see the
-[dated results and coverage limits](status.md).
+Run `scripts/verify suite` from a trusted host to check gateway access, both
+streaming APIs, four native agents and credential isolation. It previews by
+default. It does not provision resources, upload code, install agents, start the
+adapter or change connector policies/labels. See [tested results](status.md).
 
-## Prepare an explicit plan
+## Prepare a plan
 
-Use a trusted host with Python 3.12+, toolkit dependencies and an authenticated
-`sprite` CLI. Both existing test Sprites need the reviewed, **clean Git checkout
-at the specified commit** and its virtual environment. The labeled Sprite needs
-the selected agents installed at the documented pins, configuration applied,
-and the owned Claude adapter already healthy and created from the current proxy
-sources. After updating the checkout, explicitly switch the old setup off before
-activating it again; a healthy old process is not proof of the updated code.
-Use the normal
-[`use-nebius` workflow](agent-setup.md) for that separately approved setup.
+The host needs Python 3.12+, toolkit dependencies and an authenticated `sprite`
+CLI. Both test Sprites need a clean checkout at the same reviewed revision and
+a usable Python environment. On the labeled Sprite, install the pinned agents,
+apply configuration and start the current-source owned adapter using
+[agent setup](agent-setup.md). A healthy process from old source is insufficient.
 
-Save a reviewed plan outside the repository; these are placeholders, not live
-targets. Obtain immutable Sprite IDs from their API records. `org_id` is the
-numeric organization ID used in gateway usage records; have the operator verify
-its binding to the organization slug. Never put a token or key in this file.
+Save a private plan outside Git. Replace all placeholders with verified values:
+immutable Sprite IDs from the API, numeric org ID from usage records, and its
+corresponding organization slug. Never put credentials in the plan.
 
 ```json
 {
@@ -46,140 +38,98 @@ its binding to the organization slug. Never put a token or key in this file.
   "agent_bin": "/home/sprite/agent-pins/bin",
   "agent_timeout": 120,
   "scan": {
-    "roots": ["/"],
-    "max_bytes": 4294967296,
-    "max_files": 100000,
-    "timeout": 300
+    "roots": ["/"], "max_bytes": 4294967296,
+    "max_files": 100000, "timeout": 300
   }
 }
 ```
 
-The scan example is a per-run ceiling, not a promise that an entire Sprite fits
-within it. Explicit plans may request up to 16 GiB, 400,000 objects and 1,200
-seconds per worker; the collector's smaller standalone defaults are unchanged.
-An increased budget needs fresh permission and a new plan, not a resumed run
-with altered limits. Review mounted filesystems and data volume before approving.
-Smaller root lists narrow the evidence: never present a home-only scan as a full
-filesystem scan. Exceeding a byte/object/time limit is inconclusive.
-Byte and object allowances are shared across the five lifecycle/final capture
-streams; each worker receives only the remaining allowance. The timeout is per
-worker, with the native-agent duration added where applicable.
+Review mounted filesystems and data volume before authorizing a scan. The example
+budget need not fit an entire Sprite. Explicit limits can reach 16 GiB, 400,000
+objects and a 1,200-second scan timeout; byte/object budgets are shared across
+capture streams, while timeout is per worker with the native-agent duration
+added where applicable. Exceeding a limit is inconclusive. Changed budgets
+require a new approved plan, not a resume with altered limits.
 
 ```sh
 .venv/bin/python scripts/verify suite --plan /private/approved-plan.json
 ```
 
-Preview lists targets, pinned versions, native commands, scan scope and the
-potentially billable probes. No external call or key read occurs in preview.
+Preview lists targets, pinned versions, commands, scan scope and billable probes
+without external calls or key reads.
 
-## Authorize only the intended operations
+## Execute only authorized checks
 
-These flags record **separately obtained permission**, not permission grants:
+Flags record prior permission for the named targets and operations:
 
 | Flag | Operation |
 | --- | --- |
-| `--approve-probes` | Laptop GET; with exec approval, labeled/unlabeled GET checks |
-| `--approve-exec` | Execute the reviewed worker on the named Sprites; read back Sprite identity/labels first |
-| `--approve-inference` | Exactly two direct streaming probes, Chat and Responses, at most 256 requested output tokens each |
-| `--approve-agents` | One native invocation each of Codex, OpenCode and Pi; adds Claude only with its separate flag |
-| `--approve-claude` | The existing confined arithmetic edit/test task, not arbitrary tool use |
-| `--approve-denial` | One empty POST `/files`, expecting the gateway's policy 403 |
-| `--approve-scan` | Read and transfer the declared files/process environments to the trusted host, and read the explicitly named host key |
+| `--approve-probes` | Laptop GET; labeled/unlabeled GETs with exec approval |
+| `--approve-exec` | Run the reviewed worker after verifying Sprite identity/labels |
+| `--approve-inference` | Two direct streaming requests, at most 256 requested output tokens each |
+| `--approve-agents` | One invocation each of Codex, OpenCode and Pi |
+| `--approve-claude` | Add Claude's confined arithmetic edit/test fixture |
+| `--approve-denial` | One empty POST `/files`; broken restrictions may permit upstream dispatch |
+| `--approve-scan` | Transfer approved files/environments to the trusted host and read its named key file |
 
-All remote operations also require `--approve-exec`. Agent timeouts and Claude's
-turn limit are **not** exact provider-request or spending caps. No retries are
-made: the transport explicitly sets `SPRITE_EXEC_MAX_RETRIES=1` instead of
-inheriting the CLI's default startup retries. A startup error can follow an
-ambiguous dispatch, so it is not safe to assume no remote work occurred.
-No service/policy/label changes are implicitly authorized by these flags.
-
-For example, **after approval for GET probes and remote execution only**:
+All remote operations also require `--approve-exec`. Native timeouts/turn limits
+are not request or spending caps. These flags never authorize policy, label or
+service changes. For an approved GET-only batch with remote execution:
 
 ```sh
 .venv/bin/python scripts/verify suite --plan /private/approved-plan.json \
   --run --result /private/nebius-run.json --approve-probes --approve-exec
 ```
 
-Other checks remain blocked. Add only the flags authorized for a later batch.
-The result is mode 0600, checkpointed **before** each dispatch and protected by
-a single-writer lock. Keep it and its lock outside Git. `--resume` uses the same
-`--result` and exact plan; completed or uncertain operations are never replayed.
-An uncertain operation or failed check stops later work. Inspect cleanup before
-requesting a new run and fresh spending allowance. Transport interruption may
-leave the remote worker running until its own deadline; inspect the Sprite,
-do not assume killing the local CLI immediately cancels remote execution.
+Unapproved checks remain blocked. The mode-600 result is checkpointed before
+dispatch and protected by a single-writer lock. Preserve it and its lock outside
+Git. `--resume` requires the identical plan; completed or uncertain operations
+are never replayed. A failure or uncertain dispatch stops subsequent work.
+Transport sets `SPRITE_EXEC_MAX_RETRIES=1` to disable startup retries. Interrupting
+the host can leave a remote worker running until its own deadline: inspect
+remote state and cleanup before authorizing another run.
 
-## What the suite actually proves
+Agent checks use real configurator-written files in isolated temporary homes,
+without copied user plugins or real credentials. Temporary configuration is
+restored afterward. The Claude worker verifies current-source service ownership
+and readiness but does not restart it. The suite does not switch off a
+pre-existing user setup; normal shell activation/restoration is a separate test.
 
-- V2/V3: laptop/unlabeled denial, in distinct checked target contexts.
-- V5–V8: native agent results using files emitted by the real configurator in
-  isolated temporary homes, plus configured-route validation. Safety restrictions
-  are seeded before configuration; no copied user plugins or real credentials.
-  Temporary configuration is restored and directories removed after execution.
-  Before invoking Claude, the worker checks the owned service's current-source
-  binding and readiness. It never replaces or restarts a stale service itself.
-- V9: the specified 403 **and** gateway policy error. Independent no-dispatch
-  tracing is optional extra assurance, not a new acceptance requirement.
-- S1/S2/S3 and GET-denial observations are retained separately. They do not prove
-  complete S4 policy coverage or actual deployment of every current-main feature.
+## Credential scan
 
-The suite does not switch off the user's pre-existing configuration or adapter.
-Independently exercise normal shell on/off and compare original files when
-validating the new wrapper. That and the unaided-admin trial remain distinct
-from isolated native-agent acceptance.
+Supply `--key-file /private/nebius-key` only with scan authorization. It must be
+an owner-only regular host file (0600 or 0400), validated before dispatch.
+Never send the key into a Sprite. Keyless workers stream bytes to a host-only
+exact-key matcher; raw captures are not stored, printed or hashed into reports.
 
-### V1: streamed, scoped and point-in-time
+The suite samples each native agent's initial live environment and temporary
+configuration/work files before cleanup, then the approved regular-file roots
+and accessible current process environments. Required missing samples, read
+failures, races, caps or truncated transfers prevent a pass. A match fails even
+if other coverage is incomplete.
 
-With scan approval, supply `--key-file /private/nebius-key`, an existing owner-only
-regular host file, mode 0600 or 0400. Never place the key inside a Sprite or plan.
-The host validates it **before dispatching** a scan-enabled worker. A keyless
-collector streams framed bytes directly into the host matcher; no raw capture
-is stored, printed, hashed into reports or sent to an external service.
+Traversal does not follow symlinks and excludes devices and canonical
+`/proc`/`/sys` trees; scanning `/` includes data-bearing `/dev/shm`.
+Review unexpected virtual mounts yourself. Memory, deleted-but-open files,
+xattrs, transformed copies, unsampled descendants and later environment changes
+are not covered. Narrow roots are not a full-filesystem scan. Transferred data
+may include other credentials, even though no raw bytes are retained.
 
-The suite samples each native agent's initial process environment while alive,
-then its temporary configuration/work files before cleanup, and finally the
-approved regular-file roots plus accessible live-process environments. An
-exited process's environment cannot be reconstructed; the initial sample does
-not cover every descendant or later mutation. Required missing samples,
-unreadable files, races and truncated transfers prevent a pass. A detected key
-remains a failure even if later collection fails.
+Clean captures remain inconclusive until `--scan-acceptance` supplies a reviewed
+JSON object with `profile: "lifecycle-v1"`, the exact preview `plan_sha256` and
+`review_sha256` referencing private scope/timing acceptance. That review cannot
+expand what was sampled. This lifecycle profile differs from the legacy
+[before/after artifact scanner](acceptance.md#existing-capture-scanning);
+neither proves universal key absence.
 
-The collector uses no-follow descriptor traversal, excludes symlinks/devices/
-canonical `/proc` and `/sys` trees, and includes data-bearing `/dev/shm` when
-traversing `/`. A virtual filesystem mounted elsewhere needs explicit review
-when choosing roots; this is not automatic mount-type discovery. Memory,
-deleted-but-open files, xattrs and transformed/encoded copies are not covered.
-Collection can transfer other sensitive data: obtain permission for its scope
-and transfer even though bytes are not retained.
+## V4 and V10: explicit operator evidence
 
-This lifecycle profile is a practical proposed interpretation of V1, **pending
-security acceptance**, not the older artifact scanner's stronger before/after
-contract. The existing offline artifact command remains available unchanged.
-Do not manufacture coverage flags or claim a universal absence guarantee.
+The suite retains verification IDs in its output. V4 is the Playground
+model-list check; the named Playground is development-only. Production per-Sprite
+Test reports status/latency, not a validated model list. A substitute needs
+explicit acceptance plus model-list evidence from the same Sprite/connector.
 
-Even clean scans leave V1 inconclusive until `--scan-acceptance` supplies a
-reviewed JSON object with `profile: "lifecycle-v1"`, the exact `plan_sha256`
-printed by preview, and `review_sha256` referencing the private scope/timing
-acceptance. This can be added later with an evidence-only resume; it never
-retroactively expands the sampled scope or grants permission for another scan.
-
-### V4 and V10: explicit operator evidence
-
-The named Playground remains dev-only. Production per-Sprite **Test** already
-executes `/models` from the Sprite when configured appropriately, but Scott's
-acceptance of that equivalence is still required. The suite does not silently
-substitute a CLI GET or mutate the spec.
-
-Production Test currently reports a status, message and latency, not the model
-list; its Custom API handler treats any upstream 2xx as success without
-validating the response body. A successful Test alone therefore cannot prove
-V4's **200 with model list**. Retain actual Playground evidence, or obtain an
-explicitly accepted alternative that also validates the model-list response
-from the same labeled Sprite and connector. Do not turn a generic Test success
-into a passing V4 ledger entry.
-
-`--v4-evidence` accepts this wrapper around the existing requirement-ledger
-format from [acceptance.md](acceptance.md):
+`--v4-evidence` wraps the [requirement ledger](acceptance.md#requirement-ledger):
 
 ```json
 {
@@ -193,23 +143,18 @@ format from [acceptance.md](acceptance.md):
 }
 ```
 
-An empty ledger cannot pass. Supply actual reviewed V4 evidence at that revision;
-the equivalence digest references the private acceptance decision, not an
-invented identifier. `route: "gateway-playground"` uses actual Playground
-evidence and does not need an equivalence digest. These inputs are reviewed
-attestations, not cryptographic proof that the observation was truthful.
+An empty ledger cannot pass: add actual V4 evidence at that revision.
+The equivalence digest must reference a real acceptance decision.
+`route: "gateway-playground"` uses actual Playground evidence and needs no
+equivalence digest. These are reviewed attestations, not independent proof.
 
-`--billing-evidence` takes the V10 reconciliation document. Prefer the documented
-whole-UTC-day scope, verified project/key binding, complete operator log export
-and authoritative full-number Nebius billing counts with actual freshness.
-Record known usage from unsuccessful calls too; unknown potentially billed
-usage is inconclusive. Numeric org, connector, Sprite, provider, model and tested
-revision must match the plan. Imports can be added with `--resume` **without any
-execution approval flags**, so billing refresh cannot repeat inference.
+`--billing-evidence` takes the [usage reconciliation document](acceptance.md#usage-reconciliation).
+Org, connector, Sprite, provider, model and revision must match the plan.
+Source coverage must include known usage from unsuccessful calls; unknown usage
+is inconclusive. V1/V4/V10 evidence can be added with `--resume` **without
+execution approval flags**, so updating evidence does not repeat inference.
 
-Only V1–V10 all passing makes `verification_complete: true`. Operator evidence
-keeps `all_checks_automated: false`: literal B4 remains open until retrieval is
-automated or Scott explicitly accepts this operator-input boundary. Independent
-admin acceptance, security sign-off, publication and outreach are separate.
-`full_spec_verified` is always false for this suite. Keep the repository private
-and do not publish logs, key files, plans or original evidence.
+Only all ten checks passing sets `verification_complete: true` and exits zero.
+Missing/inconclusive checks exit nonzero. `all_checks_automated` remains false
+because some evidence is collected by operators; `full_spec_verified` is always
+false for the suite. It is not independent security or release sign-off.

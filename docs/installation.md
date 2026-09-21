@@ -1,20 +1,16 @@
-# Install candidate runtimes
+# Installation
 
-`scripts/configure` configures **already installed** agents. It never installs,
-updates, or launches them. Package installation and Sprite service creation are
-separate, explicit operations; obtain authorization before doing either on a
-shared or live Sprite. No inference is necessary for installation.
+The configurator uses already installed agents; it never installs or updates
+them. Use a Linux Sprite with Python 3.12+, `venv`/`pip`, and Node.js 22.19.0+
+with npm. Install only in an environment you are authorized to change.
 
-## Prerequisites
+Keep this checkout at its final path before starting the Claude service:
+the service records absolute repository and Python paths. Moving either requires
+stopping the owned service and recreating it.
 
-Use a Linux Sprite with Python 3.12+, `venv`/`pip`, and Node.js **22.19.0 or
-later** with npm. That Node minimum covers the declared requirements of all four
-candidate packages below. Place the reviewed repository at its intended final
-path before creating a service: the service records absolute repository and
-Python paths. Moving the checkout or its virtual environment afterward requires
-stopping the owned service and explicitly recreating it.
+## Python environment
 
-From the repository root, prepare a private, repository-local Python runtime:
+From the repository root:
 
 ```sh
 python3.12 -m venv .venv
@@ -22,32 +18,25 @@ python3.12 -m venv .venv
 .venv/bin/python scripts/check
 ```
 
-These requirements pin the configurator's comment-preserving TOML dependency
-and the proxy's runtime dependencies. Ordinary checks use mocks and local HTTP
-fixtures, not paid inference. Installing dependencies requires network access;
-do not describe the installation itself as an offline operation. The simpler
-gateway probe can still run independently without those third-party packages.
+Installation requires network access. The tests themselves use offline fixtures
+and do not spend inference. The standalone gateway probes need only Python 3.9+;
+the full toolkit and adapter require Python 3.12+.
 
-## Exact candidate agent versions
+## Tested agent versions
 
-The official npm registry returned these versions on **16 September 2026**.
-They are reproducible pins. All four passed the scoped V5–V8 live smoke checks
-on 16 September using Qwen3-30B-A3B-Instruct-2507; see [the evidence checklist](status.md).
-This is not certification of every workflow/model. Keep the tested version,
-model and repository revision in acceptance records; upgrades need new verification.
+These pins passed the [documented smoke tests](status.md). Upgrades need fresh
+verification; model discovery alone does not establish agent compatibility.
 
-| Agent command | Package and candidate pin | Registry metadata |
-| --- | --- | --- |
-| `codex` | `@openai/codex@0.154.0` | [Exact release](https://registry.npmjs.org/@openai%2Fcodex/0.154.0) |
-| `opencode` | `opencode-ai@1.18.31` | [Exact release](https://registry.npmjs.org/opencode-ai/1.18.31) |
-| `pi` | `@earendil-works/pi-coding-agent@0.85.1` | [Exact release](https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/0.85.1) |
-| `claude` | `@anthropic-ai/claude-code@2.1.273` | [Exact release](https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/2.1.273) |
+| Command | Package |
+| --- | --- |
+| `codex` | `@openai/codex@0.154.0` |
+| `opencode` | `opencode-ai@1.18.31` |
+| `pi` | `@earendil-works/pi-coding-agent@0.85.1` |
+| `claude` | `@anthropic-ai/claude-code@2.1.273` |
 
-After approval, an isolated npm prefix avoids replacing existing global agent
-installations. Install only the agents you intend to select; the example below
-installs all four. npm may execute the publishers' installation scripts and
-download platform-specific binaries. Do not use `sudo`, disable optional
-dependencies, or copy a provider key into the install environment.
+Use an isolated prefix to avoid replacing global installations. npm can run
+publisher install scripts and download binaries; review those changes first.
+The example installs all four; omit packages you do not intend to use.
 
 ```sh
 npm install --global --prefix "$HOME/.local/share/sprites-nebius-agents" \
@@ -63,31 +52,19 @@ pi --version
 claude --version
 ```
 
-This changes `PATH` only in the current shell; it does not edit startup files.
-With npm 12's default script policy, installation can finish while leaving
-OpenCode and Claude as non-working placeholders. Review the pinned packages'
-`postinstall.mjs` and `install.cjs`, then explicitly run only their binary setup
-steps in the isolated prefix:
+This changes only the current shell's PATH. With npm 12's default script policy,
+OpenCode and Claude may install as non-working placeholders. After reviewing
+the pinned packages' scripts, run only their binary setup steps:
 
 ```sh
 node "$HOME/.local/share/sprites-nebius-agents/lib/node_modules/opencode-ai/postinstall.mjs"
 node "$HOME/.local/share/sprites-nebius-agents/lib/node_modules/@anthropic-ai/claude-code/install.cjs"
 ```
 
-Do not globally relax npm's script policy. Both steps were needed for these
-pins on the tested Sprite with npm 12.0.2; Codex and Pi worked without them.
-Record the actual reported versions. Ensure later shells and your acceptance
-runner resolve these same executables. Do not use unpinned `latest` updates
-during a controlled validation batch. This repository does not disable every
-agent's own update mechanism; verify versions again immediately before testing.
+Both were needed on the tested Sprite with npm 12.0.2. Do not globally relax
+npm's script policy, use `sudo`, or disable required optional dependencies.
+Verify executable versions immediately before testing; this toolkit does not
+disable every agent's update mechanism.
 
-The package names are documented by [OpenAI](https://learn.chatgpt.com/docs/codex/cli),
-[OpenCode](https://opencode.ai/docs/), [Pi](https://pi.dev/news/2026/5/7/pi-has-a-new-home),
-and [Claude Code](https://code.claude.com/docs/en/setup). Pi's current package
-scope is `@earendil-works`, not the older `@mariozechner` scope. Claude's npm
-package uses platform-specific optional dependencies; its installed binary does
-not itself run under Node.
-
-Proceed to [agent setup](agent-setup.md) only after the connector is configured
-and the chosen installed commands are available on `PATH`. Do not log into a
-direct Nebius provider account inside the Sprite or paste its key into an agent.
+Continue with [agent setup](agent-setup.md). Do not log into a direct Nebius
+provider account inside the Sprite or put its key in an agent configuration.

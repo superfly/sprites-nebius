@@ -1,102 +1,84 @@
 # Nebius Token Factory on Fly.io Sprites
 
-Run agents inside Fly.io Sprites with Nebius inference credentials held by a
-Sprites Custom API Connector, not inside the sandbox.
+Run Codex, OpenCode, Pi and Claude Code inside Fly.io Sprites using Nebius
+inference, without putting the Nebius API key in the Sprite.
 
-This repository is a client-side setup and validation toolkit for an existing
-Custom API connector. It does not implement a built-in or managed Nebius
-connector, provision provider credentials, or include the Sprites gateway.
+A [Sprites Custom API connector](https://docs.sprites.dev/concepts/connectors/)
+holds your key, authorizes Sprites by label, and forwards inference requests.
+This toolkit configures the agents and provides a local Claude Code adapter;
+it does not implement the gateway or a managed Nebius service.
 
-**Status: four-agent live smoke tests passed; release gates remain.**
-Connector authentication and incremental Chat Completions/Responses streaming
-have been observed live. Codex, OpenCode and Pi returned exactly `OK`; Claude
-edited a confined fixture and ran its test through the local adapter. These
-16 September checks used Qwen3-30B-A3B-Instruct-2507 and the exact versions in
-[the checklist](docs/status.md), not every model or arbitrary coding tasks.
-All four agents passed again in the two-Sprite coordinator at `fda0632` on
-21 September UTC, with scoped key capture and independently verified cleanup.
-No real Nebius key belongs in this repository, a Sprite, or a command-line
-argument.
+**Bring your own key:** Nebius bills your Nebius account for inference.
+Fly.io bills you separately for Sprite resources.
 
-## What is implemented
+## Quickstart
 
-- `scripts/verify discover`: lists visible Custom API connectors targeting the
-  exact Token Factory base URL. Run inside the intended Sprite.
-- `scripts/verify access`: GET-only checks for model discovery, invalid caller
-  bearer handling, and blocked endpoint paths; separate outside-Sprite and
-  unlabeled-Sprite modes check expected denial.
-- `scripts/verify inference`: explicit opt-in for two capped inference requests
-  (Chat Completions and Responses), SSE completion validation and arrival timing.
-- `scripts/configure`: installed-agent discovery, explicit connector/model
-  selection, dry-run, private backups, comment-preserving edits and `--off`.
-- `source scripts/use-nebius on|off`: one-command shell activation/restoration;
-  Claude service changes require explicit approval and bounded readiness checks.
-- Claude's pinned MIT-derived loopback adapter, hardened transport and explicit
-  ownership-checked Sprite service helper. Configure is configuration-only by
-  default; the sourced activation helper explicitly opts into service changes.
-- `scripts/verify acceptance`: offline requirement ledger, exact usage
-  reconciliation and host-only leak scanning of separately authorized captures.
-- `scripts/verify-agents`: approved native exact-OK checks and a separately
-  gated, confined Claude edit/test fixture with independent result validation.
-- `scripts/verify suite`: dry-plan-first host coordinator, immutable dispatch
-  checkpoints, scoped streaming key scan and reviewed V4/V10 evidence inputs.
-  The 21 September live trial passed every executed operation; reviewed
-  acceptance inputs remain open. See [coordinated verification](docs/verification.md).
-- Offline tests, canonical template checks, pinned dependencies and redacted
-  Git/current-source secret scanning in CI. Ordinary CI never spends inference.
+You need a Linux Sprite, Python 3.12+, an authorized Nebius connector and the
+agents you want to use. Follow [connector setup](docs/connector-setup.md) and
+[installation](docs/installation.md) first. The commands below run inside the
+Sprite from this checkout, in Bash or Zsh.
 
-Start with [agent setup](docs/agent-setup.md), [pinned installation candidates](docs/installation.md)
-and the [connector procedure](docs/connector-setup.md). Configure/probe tools do
-not create connectors, edit policies, label Sprites, install agents or read keys.
-The separate host-only leak scanner reads an explicitly approved private key
-file; it never sends the key into a Sprite.
+1. Discover available connectors and models:
 
-## Local checks (no network or credentials)
+   ```sh
+   .venv/bin/python scripts/verify discover
+   .venv/bin/python scripts/configure --dry-run
+   ```
+
+2. Choose an exact model ID from discovery, preview the changes, then enable:
+
+   ```sh
+   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --dry-run
+   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
+   ```
+
+   This configures all four installed agents and starts the loopback Claude
+   adapter. For a subset, add `--agents codex,opencode,pi` to both configure and
+   on commands; no service approval is needed without Claude. If discovery finds
+   multiple connectors, add `--connector CONNECTION_ID` to those commands.
+
+3. Run your selected agent normally. Its inference is billable. To restore the
+   previous configuration:
+
+   ```sh
+   source scripts/use-nebius off --approve-service-change
+   ```
+
+Setup reads discovery/model lists but does not send inference. It does not
+install agents, create connectors or change policies/labels. See
+[configuration and recovery](docs/agent-setup.md) for ownership and conflicts.
+
+## Security and compatibility
+
+- Keep the real Nebius key in the connector, never in the Sprite or this repo.
+  Agent configuration uses a harmless placeholder; it is not an authentication
+  boundary between processes inside one Sprite.
+- Grant access only to intended Sprite labels and inference paths.
+- The Claude adapter binds to `127.0.0.1:8083`. Never expose it as a public
+  service. It translates requests; Claude, not the adapter, executes tools.
+- Review dry runs before editing existing configuration. Private backups may
+  contain other credentials and must not be published.
+- Native agents can make multiple paid requests; timeouts are not spending caps.
+
+All four pinned agents passed scoped live checks with one model.
+See [tested compatibility and limitations](docs/status.md) and
+[adapter behaviour](proxy/README.md); this is not broad model certification or
+independent security sign-off.
+
+## Checks and reference
 
 ```sh
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements-configure.txt -r proxy/requirements.txt
 .venv/bin/python scripts/check
 .venv/bin/python scripts/verify --help
-.venv/bin/python scripts/verify acceptance --help
 ```
 
-Probe/configuration CLIs emit `full_spec_verified: false`. Exit 0 means only the
-selected operation passed; 1 means a failure or inconclusive result; 2 means
-invalid arguments. The evidence ledger can report full coverage only when all
-25 requirements have reviewed evidence; it is not a live test runner. See
-[acceptance and reconciliation](docs/acceptance.md). Passing mock tests is not
-evidence of live agent compatibility. The full runtime needs Python 3.12+;
-standalone connector probes remain dependency-free on Python 3.9+.
+Local checks and CI use offline fixtures and secret scans, not paid inference.
+Live checks require explicit opt-in; a successful probe is not full acceptance.
 
-## Remaining spec gates
+- [Connector setup and individual probes](docs/connector-setup.md)
+- [Coordinated live verification](docs/verification.md)
+- [Usage reconciliation and evidence formats](docs/acceptance.md)
+- [Nebius API reference](https://docs.tokenfactory.nebius.com/api-reference/introduction)
 
-The [complete requirement checklist](docs/status.md) tracks all 25 requirements.
-
-| Gate | Still required |
-| --- | --- |
-| S1–S3 | Authentication/caller-key replacement and both incremental streaming routes passed again at `fda0632` on 21 September with Qwen3-30B-A3B-Instruct-2507 |
-| S4 | Full intended policy/path coverage; existing approved test policy remains narrower |
-| S5 | Verified in production usage records for the 2026-09-16 batch; private identifiers and logs retained outside this repository |
-| S6, V5–V8 | Live smoke checks passed for the documented pins/model; broader compatibility is not implied |
-| V1 | Four agent captures and the final scan passed with no key matches or cap/read/race gaps; final scan covered 180,945 files and 4 live environments. Lifecycle-scope acceptance remains required |
-| V4 | Playground is development-gated; production connector Test passed but is not the specified UI route |
-| V9 | One POST `/files` returned the required policy 403; dispatch tracing is optional extra assurance |
-| V10 | Reviewed September 18 comparison passed: 21,851 input / 303 output on both sides, with project ownership and exclusive test use confirmed by the operator. September 21 batch reconciliation remains outstanding |
-| Build completion | V1 scope review, V4/V10 evidence and operator-input boundary acceptance, plus independent unaided-admin setup trial; the complete coordinator and cleanup have now been exercised live |
-| Launch | Security sign-off, publishing and partnership outreach, with authorization |
-
-The full scope remains the four-agent integration. We are not implementing a
-Sprites backend inside Nebius's own sandbox platform or building a managed
-inference service. Provider-native functionality, security and streaming tests
-must pass before advertising support.
-
-## References
-
-- [Sprites connectors](https://docs.sprites.dev/concepts/connectors/)
-- [Nebius API documentation](https://docs.tokenfactory.nebius.com/api-reference/introduction)
-- [Nebius Responses API](https://docs.tokenfactory.nebius.com/api-reference/inference/create-a-response)
-- [OpenAI SSE event semantics](https://developers.openai.com/api/docs/guides/streaming-responses)
-
-License: Apache-2.0, except the attributed MIT-derived conversion subset in
-`proxy/vendor/`. Its exact source commit and adaptations are recorded there.
+License: Apache-2.0, except the attributed MIT-derived conversion subset under
+`proxy/vendor/`, which retains its source revision and license.
