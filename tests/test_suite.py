@@ -247,6 +247,27 @@ class SuiteTests(unittest.TestCase):
         self.assertIn("-I", argv)
         self.assertNotIn("--env", argv)
 
+    def test_unlabeled_target_accepts_null_or_empty_labels(self):
+        p = plan()
+        for labels in (None, []):
+            identity = {"id": p["unlabeled"]["id"], "name": "unlabeled",
+                        "organization": "org-test", "labels": labels}
+            with self.subTest(labels=labels), patch.object(suite.shutil, "which", return_value="/bin/sprite"), patch.object(suite, "transport", side_effect=[identity, fake(p, "unlabeled")]) as call:
+                suite.invoke(p, "unlabeled")
+            self.assertEqual(call.call_count, 2)
+
+    def test_null_labels_never_authorize_labeled_target_or_malformed_labels(self):
+        p = plan()
+        for operation, labels in (("pi", None), ("pi", []), ("unlabeled", ["nebius"]),
+                                  ("unlabeled", False), ("unlabeled", {}), ("unlabeled", "")):
+            target = p["unlabeled" if operation == "unlabeled" else "labeled"]
+            identity = {"id": target["id"], "name": target["name"],
+                        "organization": "org-test", "labels": labels}
+            with self.subTest(operation=operation, labels=labels), patch.object(suite.shutil, "which", return_value="/bin/sprite"), patch.object(suite, "transport", return_value=identity) as call:
+                with self.assertRaisesRegex(suite.SuiteError, "^sprite_label_mismatch$"):
+                    suite.invoke(p, operation)
+            self.assertEqual(call.call_count, 1)
+
     def test_private_result_round_trip_and_exclusive_lock(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d).resolve() / "run.json"

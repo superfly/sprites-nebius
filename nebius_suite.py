@@ -313,6 +313,8 @@ def invoke(plan, operation, *, key_file=None, scan_approved=False):
             or identity.get("organization") != plan["org"] or identity.get("name") != target["name"]):
         raise SuiteError("sprite_identity_mismatch")
     labels = identity.get("labels", [])
+    if labels is None:  # The API represents an unlabeled Sprite as JSON null.
+        labels = []
     if not isinstance(labels, list) or ("nebius" in labels) != (operation != "unlabeled"):
         raise SuiteError("sprite_label_mismatch")
     control = {"plan": plan, "operation": operation, "capture": capturing}
