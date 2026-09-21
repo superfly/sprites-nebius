@@ -3,52 +3,91 @@
 Run Codex, OpenCode, Pi and Claude Code inside Fly.io Sprites using Nebius
 inference, without putting the Nebius API key in the Sprite.
 
-A [Sprites Custom API connector](https://docs.sprites.dev/concepts/connectors/)
-holds your key, authorizes Sprites by label, and forwards inference requests.
-This toolkit configures the agents and provides a local Claude Code adapter;
-it does not implement the gateway or a managed Nebius service.
-
 **Bring your own key:** Nebius bills your Nebius account for inference.
 Fly.io bills you separately for Sprite resources.
 
-## Quickstart
+## Get started
 
-You need a Linux Sprite, Python 3.12+, an authorized Nebius connector and the
-agents you want to use. Follow [connector setup](docs/connector-setup.md) and
-[installation](docs/installation.md) first. The commands below run inside the
-Sprite from this checkout, in Bash or Zsh.
+### 1. Connect your Nebius account
 
-1. Discover available connectors and models:
+On your laptop, follow the [connector setup guide](docs/connector-setup.md) to
+add your Nebius key in **Fly dashboard → Sprites → Connectors → Custom API**.
+Grant access to your Sprite using the `nebius` label and the guide's inference-only
+path policy. **Keep the key in the connector—never copy it into the Sprite.**
+If your administrator has already done this, skip to step 2.
 
-   ```sh
-   .venv/bin/python scripts/verify discover
-   .venv/bin/python scripts/configure --dry-run
-   ```
+### 2. Prepare your Sprite
 
-2. Choose an exact model ID from discovery, preview the changes, then enable:
+Copy this repository into your Sprite and open its directory in **Bash or Zsh**.
+All remaining commands run there, not on your laptop. You need Python 3.12+ and
+at least one [installed agent](docs/installation.md#tested-agent-versions) on PATH.
 
-   ```sh
-   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --dry-run
-   source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
-   ```
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements-configure.txt -r proxy/requirements.txt
+```
 
-   This configures all four installed agents and starts the loopback Claude
-   adapter. For a subset, add `--agents codex,opencode,pi` to both configure and
-   on commands; no service approval is needed without Claude. If discovery finds
-   multiple connectors, add `--connector CONNECTION_ID` to those commands.
+### 3. Choose your agent and model
 
-3. Run your selected agent normally. Its inference is billable. To restore the
-   previous configuration:
+This example uses **Codex**. Set `NEBIUS_AGENTS` to `opencode`, `pi`, `claude`,
+or a comma-separated list to configure other installed agents.
 
-   ```sh
-   source scripts/use-nebius off --approve-service-change
-   ```
+```sh
+NEBIUS_AGENTS=codex
+.venv/bin/python scripts/verify discover
+.venv/bin/python scripts/configure --agents "$NEBIUS_AGENTS" --dry-run
+```
 
-Setup reads discovery/model lists but does not send inference. It does not
-install agents, create connectors or change policies/labels. See
-[configuration and recovery](docs/agent-setup.md) for ownership and conflicts.
+The last command lists available model IDs without changing your configuration.
+If you have multiple Nebius connectors, add `--connector CONNECTION_ID` to that
+command and both `on` commands below; use the ID at the end of its discovered URL.
+
+### 4. Preview the changes, then enable Nebius
+
+Replace the model placeholder with an exact ID from step 3, then preview:
+
+```sh
+NEBIUS_MODEL='MODEL_ID_FROM_LIST'
+source scripts/use-nebius on --agents "$NEBIUS_AGENTS" --model "$NEBIUS_MODEL" --dry-run
+```
+
+Review the files it will change. If the preview looks right, enable Nebius:
+
+```sh
+source scripts/use-nebius on --agents "$NEBIUS_AGENTS" --model "$NEBIUS_MODEL" --approve-service-change
+```
+
+Selecting Claude also starts its local adapter; the approval flag permits that
+service change and is unnecessary for other agents. Setup reads model lists but
+does not send inference. In a new shell, repeat steps 3–4 with the same selection
+to activate it there too.
+
+### 5. Start coding
+
+Launch the agent you selected—for the example above:
+
+```sh
+codex
+```
+
+Use `opencode`, `pi` or `claude` instead if you selected one of those.
+**Agent use makes billable inference requests.** See the
+[tested agent/model combinations](docs/status.md) before choosing another model.
+
+### Switch back when you're done
+
+```sh
+source scripts/use-nebius off --approve-service-change
+```
+
+This restores the previous configuration and stops the Claude adapter if this
+toolkit started it. If you hit a configuration conflict, see
+[configuration and recovery](docs/agent-setup.md); do not overwrite the files.
 
 ## Security and compatibility
+
+This toolkit uses an existing [Sprites Custom API connector](https://docs.sprites.dev/concepts/connectors/);
+it does not provision a connector or implement the gateway or a managed inference service.
 
 - Keep the real Nebius key in the connector, never in the Sprite or this repo.
   Agent configuration uses a harmless placeholder; it is not an authentication
