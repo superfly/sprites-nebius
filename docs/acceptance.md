@@ -326,8 +326,13 @@ gateway inspection established S5 attribution. On 21 September, refreshed
 September 18 whole-day provider totals matched the gateway's 21,851 input /
 303 output tokens exactly. A full-day connector export and independent
 server-side count both contained the same 11 requests; the provider display
-was updated after that UTC day ended. V10 still needs key-to-project binding
-and confirmation that the project had no unrelated traffic. Production's
+was updated after that UTC day ended. The operator subsequently confirmed that
+both keys belonged to the selected project and were used exclusively for these
+tests. The reviewed comparison meets V10's 5% criterion (0% difference); it is
+not a passing invocation of the stricter whole-day importer. No gateway ingestion
+watermark was recorded, and the query used log-event time rather than an explicit
+overlapping-request predicate. Do not invent that metadata. Automated source
+collection/import remains part of the open B4 boundary. Production's
 connector Test button is available, but Gateway Playground itself is gated
 behind development mode. Staff-assisted reconciliation is the proposed v0
 workflow, not a customer self-service export or an already-approved change to

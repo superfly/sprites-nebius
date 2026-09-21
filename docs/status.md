@@ -128,10 +128,18 @@ the UTC-day boundary.
 Nebius displayed **0.021851 million input / 0.000303 million output tokens** for
 the same model and day: **0% difference**. Its displayed update time was
 20 September at 23:17 UTC, after the accounting day ended. This closes the
-previous window/freshness and connector-log-count gaps, but does not independently
-establish which project owned the connector's key or exclude unrelated traffic
-in that project. Those confirmations remain necessary for an attributable V10
-pass. Private project/connector identities and source evidence stay outside Git.
+previous window/freshness and connector-log-count gaps. The operator subsequently
+confirmed on 21 September that both connector keys belonged to the selected
+project and were used exclusively for these tests. With that administrative
+attestation, the reviewed September 18 comparison **passes V10's 5% criterion**
+and B6's acceptance condition. This is a manual evidence review, not independent
+credential inspection or a new live test of later code.
+
+The strict whole-day reconciliation importer was not marked passed: the saved
+query used log-event time and did not establish a gateway ingestion watermark.
+No missing metadata was fabricated. B4's fully automated source collection and
+the complete coordinator trial remain open. Private project/connector identities
+and source evidence stay outside Git.
 No inference, key access or external mutation was performed during this review.
 
 | Requirement | Current evidence / remaining gate |
@@ -147,7 +155,7 @@ No inference, key access or external mutation was performed during this review.
 | B3 | V8 and normal sourced activation/service readiness/restoration passed at `b880115`; previous service lifecycle observations remain dated evidence |
 | B4 | Cross-context coordinator and streamed collector implemented with offline tests; standalone collection exercised live, but the complete coordinator trial and V4/V10 operator-input boundary acceptance remain open |
 | B5 | Conditional quickstart, exact candidate installation pins and connector guide written; independent unaided-admin acceptance still required |
-| B6 | Reconciliation tooling/guide implemented; observed gateway and provider counts match, but full V10 prerequisites remain |
+| B6 | Guide implemented; reviewed September 18 V10 comparison passed after operator project/exclusive-use confirmation. Automated acquisition remains part of B4 |
 | L1 | Offline self-review and point-in-time dependency audit performed; independent security sign-off still required |
 | L2 | Private repository/internal PR authorized; public release and ecosystem listing remain pending explicit authorization |
 | L3 | No outreach; requires explicit authorization and reviewed usage evidence |
@@ -158,7 +166,7 @@ No inference, key access or external mutation was performed during this review.
 | V5–V7 | Fresh scoped exact-OK checks passed at `b880115` |
 | V8 | Fresh confined edit/test task, five stream deltas and independent test passed at `b880115` |
 | V9 | Fresh single empty POST `/files` at 01:58:53 UTC returned 403 with the expected gateway policy error; independent no-dispatch tracing is optional |
-| V10 | Refreshed September 18 whole-day comparison: 21,851 input / 303 output tokens on both sides (0% difference), with fresh provider data and full-day connector count verified. Key-to-project binding and absence of unrelated project traffic still need confirmation; financial settlement is not required |
+| V10 | Reviewed September 18 comparison passed: 21,851 input / 303 output tokens on both sides (0% difference), with operator-confirmed project ownership/exclusive use. Manual evidence, not a passing strict whole-day import or financial-settlement claim |
 
 ## Current state
 
