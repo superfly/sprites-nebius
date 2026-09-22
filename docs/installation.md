@@ -39,7 +39,7 @@ the full toolkit and adapter require Python 3.12+.
 
 ## Tested agent versions
 
-These pins passed the [documented smoke tests](status.md). Upgrades need fresh
+These pins passed the [documented smoke tests](compatibility.md). Upgrades need fresh
 verification; model discovery alone does not establish agent compatibility.
 
 | Command | Package |

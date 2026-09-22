@@ -43,7 +43,7 @@ PATH; missing executables fail before configuration changes. For a subset, add
 `--agents codex,opencode,pi` (or another selection) to the configure/on commands.
 With multiple matching connectors, also pass `--connector CONNECTION_ID`.
 Discovery proves a model exists, not that it supports an agent's protocol,
-reasoning or tools; see [tested compatibility](status.md).
+reasoning or tools; see [tested compatibility](compatibility.md).
 
 Source the helper in each shell that will launch agents. It writes configuration,
 starts/checks the owned Claude service when selected, then exports the placeholder.
@@ -114,23 +114,3 @@ the journal's expected before/after states; inspect conflicts and retain backups
 On success, the shell helper removes only exports it introduced and still owns.
 The retained `off.sh` can clear that placeholder from another already-open shell
 without unsetting a changed or pre-existing value.
-
-## Optional live agent checks
-
-Preview the selected pinned-agent checks, then opt in only for an approved run:
-
-```sh
-.venv/bin/python scripts/verify-agents --agents codex,opencode,pi
-.venv/bin/python scripts/verify-agents --agents codex,opencode,pi --approve-agent-runs
-.venv/bin/python scripts/verify-agents --agents claude --timeout 180 \
-  --approve-agent-runs --approve-claude-fixture
-```
-
-The runner uses isolated temporary homes and real configurator-written files,
-accepts only exact `OK` for the first three agents, never retries, and stops on
-the first non-pass. Claude requires a healthy owned adapter and a dedicated test
-Sprite. Its restricted fixture allows one arithmetic edit and a fixed test,
-rejects other paths/commands/changed tests, and independently checks the result.
-It is not a general sandbox for arbitrary code. Six turns and timeouts do not
-bound provider request counts or cost. For cross-context checks and key scanning,
-use the [host-side suite](verification.md).

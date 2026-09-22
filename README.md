@@ -51,7 +51,7 @@ does not edit your shell profile. It prints the full command to use from another
 project directory. You can also pass `--launch` on the initial setup command.
 
 **Agent use makes billable inference requests.** Model discovery does not prove
-compatibility: see the [tested agent/model combinations](docs/status.md).
+compatibility: see the [tested agent/model combinations](docs/compatibility.md).
 
 ### Switch back when you're done
 
@@ -85,7 +85,7 @@ it does not provision a connector or implement the gateway or a managed inferenc
 - Native agents can make multiple paid requests; timeouts are not spending caps.
 
 All four pinned agents passed scoped live checks with one model.
-See [tested compatibility and limitations](docs/status.md) and
+See [tested compatibility and limitations](docs/compatibility.md) and
 [adapter behaviour](proxy/README.md); this is not broad model certification or
 independent security sign-off.
 
@@ -98,11 +98,11 @@ independent security sign-off.
 ```
 
 Local checks and CI use offline fixtures and secret scans, not paid inference.
-Live checks require explicit opt-in; a successful probe is not full acceptance.
+Optional gateway probes require explicit opt-in for billable requests and
+write-denial checks; see the connector guide below.
 
 - [Connector setup and individual probes](docs/connector-setup.md)
-- [Coordinated live verification](docs/verification.md)
-- [Usage reconciliation and evidence formats](docs/acceptance.md)
+- [Agent compatibility and limitations](docs/compatibility.md)
 - [Nebius API reference](https://docs.tokenfactory.nebius.com/api-reference/introduction)
 
 License: Apache-2.0, except the attributed MIT-derived conversion subset under

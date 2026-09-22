@@ -1,9 +1,0 @@
-#!/usr/bin/env python3
-"""Dry-plan or explicitly approve native agent acceptance (not a spend cap)."""
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from nebius_agents import main
-
-raise SystemExit(main())

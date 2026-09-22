@@ -132,7 +132,8 @@ class GatewayTests(unittest.TestCase):
                          ["pass", "pass", "fail", "fail", "pass"])
 
     def test_negative_identity_probes_are_separate(self):
-        for context, status, check in (("outside", 401, "V2"), ("unlabeled", 403, "V3")):
+        for context, status, check in (("outside", 401, "outside_access_denied"),
+                                       ("unlabeled", 403, "unlabeled_access_denied")):
             with self.subTest(context=context):
                 client = FakeClient(Response(status=status))
                 result = verify.access(client, BASE, context)[0]
@@ -415,15 +416,23 @@ class SafetyTests(unittest.TestCase):
                 if not isinstance(exception, URLError):
                     self.assertTrue(response.closed)
 
-    def test_cli_never_claims_complete_spec_success(self):
+    def test_cli_reports_only_connector_diagnostics(self):
         client = FakeClient(Response(status=401))
         out = io.StringIO()
         with patch.object(verify, "Client", return_value=client), contextlib.redirect_stdout(out):
             code = verify.main(["access", "--gateway-url", BASE, "--expect", "outside"])
         self.assertEqual(code, 0)
-        self.assertFalse(json.loads(out.getvalue())["full_spec_verified"])
+        self.assertEqual(json.loads(out.getvalue())["scope"], "connector probes only")
+        self.assertEqual(json.loads(out.getvalue())["results"][0]["check"], "outside_access_denied")
         self.assertRegex(json.loads(out.getvalue())["harness_sha256"], r"^[a-f0-9]{64}$")
         self.assertTrue(json.loads(out.getvalue())["recorded_at"].endswith("Z"))
+
+    def test_internal_release_commands_are_not_exposed(self):
+        for command in ("suite", "acceptance"):
+            with self.subTest(command=command), patch.object(verify, "Client") as client, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                verify.main([command])
+            client.assert_not_called()
 
     def test_partial_http_body_is_sanitized(self):
         response = Response()

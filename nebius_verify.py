@@ -190,23 +190,22 @@ def access(client, base, expected):
     if expected != "allowed":
         wanted = {"outside": 401, "unlabeled": 403}[expected]
         with client.request(base + "/models") as response:
-            return [{"check": "V2" if expected == "outside" else "V3",
+            return [{"check": expected + "_access_denied",
                      "status": "pass" if response.status == wanted else "fail",
                      "expected_http": wanted, "http_status": response.status}]
 
     with client.request(base + "/models") as response:
         ids = model_ids(response)
-    results = [{"check": "S1", "status": "pass", "models": ids,
-                "note": "CLI model discovery; not the V4 Gateway Playground UI check"}]
+    results = [{"check": "models", "status": "pass", "models": ids}]
     with client.request(base + "/models", bearer=INVALID_BEARER) as response:
         # A successful baseline is necessary before the invalid-bearer comparison.
         other_ids = model_ids(response)
-    results.append({"check": "S2", "status": "pass", "model_count": len(other_ids),
+    results.append({"check": "caller_auth_replacement", "status": "pass", "model_count": len(other_ids),
                     "note": "Invalid caller bearer accepted; server-side injection "
                             "still requires a credential-required upstream"})
     for path in ("/files", "/batches", "/fine_tuning/jobs"):
         with client.request(base + path) as response:
-            results.append({"check": "S4 GET " + path,
+            results.append({"check": "blocked_path", "method": "GET", "path": path,
                             "status": "pass" if response.status == 403 else "fail",
                             "http_status": response.status})
     return results
@@ -310,7 +309,7 @@ def inspect_stream(response, api, *, clock=time.monotonic, timeout=120.0):
         raise ProbeError("Stream lacked text deltas or a successful completion event")
     span = times[-1] - times[0]
     observed = len(times) > 1 and span >= 0.05
-    return {"check": "S3 " + api, "status": "pass" if observed else "inconclusive",
+    return {"check": "streaming_" + api, "status": "pass" if observed else "inconclusive",
             "protocol": "pass", "incremental_delivery_observed": observed,
             "text_delta_count": len(times), "text_characters": characters,
             "first_to_last_delta_ms": round(span * 1000, 2), "usage": tokens,
@@ -339,7 +338,7 @@ def inference(client, base, model, max_tokens):
                 result = inspect_stream(response, api, timeout=client.timeout)
         except (ProbeError, OSError, HTTPException) as exc:
             detail = str(exc) if isinstance(exc, ProbeError) else "Stream transport failed"
-            result = {"check": "S3 " + api, "status": "fail", "detail": detail}
+            result = {"check": "streaming_" + api, "status": "fail", "detail": detail}
         result.update(started_at=started_at, finished_at=utc_now(), model=model,
                       endpoint=path, requested_output_limit=max_tokens,
                       request_attempts=1)
@@ -358,10 +357,10 @@ def write_denial(client, base):
         body = read_json(response)
     expected = {"endpoint is blocked by policy", "endpoint is not in allowed list"}
     matched = isinstance(body, dict) and isinstance(body.get("error"), str) and body["error"] in expected
-    return [{"check": "V9", "status": "pass" if status == 403 and matched else "fail",
+    return [{"check": "blocked_write", "status": "pass" if status == 403 and matched else "fail",
              "started_at": started, "finished_at": utc_now(), "http_status": status,
              "gateway_policy_error_observed": matched, "request_attempts": 1,
-             "note": "HTTP and gateway policy error satisfy V9; independent dispatch tracing is optional hardening"}]
+             "note": "Requires the gateway's policy-specific denial, not a generic provider error"}]
 
 
 def parser():
@@ -406,6 +405,6 @@ def main(argv=None):
     except (ProbeError, OSError, HTTPException) as exc:
         detail = str(exc) if isinstance(exc, ProbeError) else "Transport failed; body omitted"
         results = [{"check": args.command, "status": "fail", "detail": detail}]
-    print(json.dumps({**evidence_identity(), "scope": "connector probes only", "full_spec_verified": False,
+    print(json.dumps({**evidence_identity(), "scope": "connector probes only",
                       "results": results}, indent=2))
     return 0 if all(row["status"] == "pass" for row in results) else 1

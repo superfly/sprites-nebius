@@ -3,7 +3,7 @@
 A loopback-only adapter translates Claude Code's text/custom-tool Messages
 requests into Chat Completions through a Sprites Nebius connector. It never
 accepts or installs a real provider key, and never executes tools itself.
-See [tested compatibility](../docs/status.md) for the pinned agent/model checks.
+See [tested compatibility](../docs/compatibility.md) for the pinned agent/model checks.
 
 ## Install and start
 
@@ -11,8 +11,9 @@ Use Python 3.12+ and the combined environment from
 [installation](../docs/installation.md). Normal setup is:
 
 ```sh
-source scripts/use-nebius on --model 'MODEL_ID_FROM_DISCOVERY' --approve-service-change
-source scripts/use-nebius off --approve-service-change
+./setup-nebius-claude
+./setup-nebius-claude --launch
+./setup-nebius-claude --off
 ```
 
 For a standalone foreground process after configuration:
@@ -26,8 +27,9 @@ through a public Sprite service/URL or bind it externally.
 
 ## Service lifecycle
 
-The sourced helper configures agents, creates the owned service, checks readiness
-and only then activates the shell. A service-only diagnostic command is
+Setup configures Claude, creates the owned service and checks readiness before
+launching it. The [sourced helper](../docs/agent-setup.md) also supports activation
+in your current shell. A service-only diagnostic command is
 `.venv/bin/python proxy/service.py --start --approve-service-change`; unlike
 the sourced helper, it does not activate exports or roll back configuration.
 
@@ -108,6 +110,3 @@ transport are not vendored. Runtime/transitive versions are pinned in
 ```sh
 .venv/bin/python -m unittest discover -s tests -p 'test_proxy*.py' -v
 ```
-
-A dependency audit on 16 September 2026 reported no known vulnerabilities.
-That is a dated observation, not security sign-off; rerun audits before release.

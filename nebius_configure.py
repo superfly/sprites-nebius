@@ -1,7 +1,7 @@
 """Reversible, local-only agent configuration; never sends inference requests.
 
 Configuration is not compatibility certification. Project-local settings and
-CLI overrides still take precedence; run live acceptance in a clean directory.
+CLI overrides still take precedence; test live routing in a clean directory.
 """
 from __future__ import annotations
 
@@ -569,7 +569,7 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
                 helper = read_file(safe_path(home, STATE + "/off.sh"))
                 if activate and helper not in (None, deactivation_shell().encode()):
                     raise ConfigureError("Unowned deactivation helper changed; no shell changes allowed")
-                return {"status": "already_off", "full_spec_verified": False}
+                return {"status": "already_off"}
             files = restoration(home, state)
             prepare_transaction(files, None, raw_state)
             if not args.dry_run:
@@ -582,7 +582,7 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
                     raise ConfigureError("Owned proxy service could not be safely stopped; configuration unchanged") from None
                 transact(home, state_dir, files, None)
             return {"status": "dry_run" if args.dry_run else "off", "paths": [f["path"] for f in files],
-                    "source": str(state_dir / "off.sh"), "full_spec_verified": False}
+                    "source": str(state_dir / "off.sh")}
         preflight(agents, environ, which)
         client = Client() if client is None else client
         matches = [row["gateway_url"] for row in discover(client)[0]["connections"]]
@@ -594,16 +594,15 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
         with client.request(gateway + "/models", bearer=PLACEHOLDER) as response:
             models = model_ids(response)
         if args.model is None:
-            return {"status": "select_model", "models": models, "certified_combinations": [],
-                    "note": "Choose --model explicitly; discovery is not agent compatibility certification",
-                    "full_spec_verified": False}
+            return {"status": "select_model", "models": models,
+                    "note": "Choose --model explicitly; discovery is not agent compatibility certification"}
         if args.model not in models or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}", args.model):
             raise ConfigureError("Choose an exact, safe model ID from discovery")
         if state:
             assert_owned(home, state)
             if (state.get("agents"), state.get("gateway"), state.get("model")) != (list(agents), gateway, args.model):
                 raise ConfigureError("Use --off before changing the connector, agents, or model")
-            result = {"status": "unchanged", "source": str(state_dir / "env.sh"), "full_spec_verified": False}
+            result = {"status": "unchanged", "source": str(state_dir / "env.sh")}
             if activate and not args.dry_run and "claude" in agents:
                 result["proxy_service"] = activate_service(home, state_dir, new_configuration=False)
             return result
@@ -636,8 +635,7 @@ def configure(args, *, home=None, environ=None, client=None, which=shutil.which,
                 home, state_dir, new_configuration=True)
         return {"status": "dry_run" if args.dry_run else "configured", "agents": agents,
                 "paths": [row["path"] for row in files], "source": str(state_dir / "env.sh"),
-                "proxy_service": service,
-                "full_spec_verified": False}
+                "proxy_service": service}
 
 
 def main(argv=None):
@@ -656,7 +654,7 @@ def main(argv=None):
     except (ConfigureError, ProbeError, OSError) as exc:
         # OSError paths can contain sensitive filenames; omit its details.
         detail = "Local filesystem operation failed" if isinstance(exc, OSError) else str(exc)
-        print(json.dumps({"status": "error", "message": detail, "full_spec_verified": False}), file=sys.stderr)
+        print(json.dumps({"status": "error", "message": detail}), file=sys.stderr)
         return 1
 
 

@@ -72,9 +72,8 @@ the gateway request inside the Sprite. Require `result.status: "ok"` and an
 upstream success; HTTP 200 alone is insufficient.
 
 The Custom API form's credential Test runs from the control plane, not the
-Sprite. Neither generic Test success nor the development-only Playground is
-silently substituted for a validated model-list response. See
-[verification evidence](verification.md#v4-and-v10-explicit-operator-evidence).
+Sprite. To check what the intended Sprite can actually access, use the model-list
+and access checks below.
 
 Inside the labeled Sprite:
 
@@ -130,7 +129,3 @@ A broken policy could dispatch upstream, so authorize this separately from GET
 checks. Passing requires 403 and the precise gateway policy error; generic
 authentication/provider errors are not a pass. No files are uploaded or retries
 made. Independent no-dispatch tracing is optional additional assurance.
-
-For an orchestrated run, use [coordinated verification](verification.md).
-For BYOK accounting and the current staff-assisted gateway export limitation,
-see [usage reconciliation](acceptance.md#usage-reconciliation).

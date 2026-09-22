@@ -126,7 +126,7 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(pi['providers']['nebius']['apiKey'], '$' + config.ENV_KEY)
         claude = json.loads((self.home / '.claude/settings.json').read_text())
         self.assertEqual(claude['env']['ANTHROPIC_BASE_URL'], 'http://127.0.0.1:8083')
-        self.assertFalse(result['full_spec_verified'])
+        self.assertEqual(result['status'], 'configured')
         self.assertIn('not_started', result['proxy_service'])
 
     def test_dry_run_creates_nothing(self):
@@ -154,7 +154,7 @@ class ConfigureTests(unittest.TestCase):
     def test_missing_model_lists_without_configuration(self):
         result = self.run_config(model=None)
         self.assertEqual(result['models'], [MODEL])
-        self.assertEqual(result['certified_combinations'], [])
+        self.assertEqual(result['status'], 'select_model')
         self.assertFalse((self.home / '.codex').exists())
 
     def test_unlisted_and_unsafe_model_rejected(self):
