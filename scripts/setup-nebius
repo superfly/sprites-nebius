@@ -1,0 +1,10 @@
+#!/bin/sh
+# Bootstrap with an existing runtime; never replace the Sprite's system Python.
+nebius_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P) || exit 1
+for nebius_python in "$nebius_root/.venv/bin/python" python3.12 python3.13 python3.14 python3; do
+    if "$nebius_python" -B -c 'import sys; sys.exit(sys.version_info < (3, 12))' >/dev/null 2>&1; then
+        exec "$nebius_python" -B "$nebius_root/nebius_setup.py" "$@"
+    fi
+done
+printf '%s\n' 'Python 3.12+ with venv/pip is required. See docs/installation.md.' >&2
+exit 1

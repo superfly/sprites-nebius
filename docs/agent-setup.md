@@ -1,5 +1,29 @@
 # Configure and restore agents
 
+For one agent, start with the [setup scripts](../README.md#get-started):
+
+```sh
+./setup-nebius-pi
+./setup-nebius-pi --launch
+./setup-nebius-pi --off
+```
+
+Substitute `codex`, `opencode` or `claude` for `pi`. They share the configurator
+below, including its ownership checks and rollback. Repeat setup reuses your
+saved selection; `--launch` exports the placeholder only to the agent process
+and preserves your current working directory. No shell startup files change.
+Project settings, hooks and extensions can still override user-level routing.
+
+Use `--dry-run` for a read-only preview. On a fresh checkout without dependencies,
+it lists the installs needed before a full configuration preview is possible.
+For noninteractive setup, select `--model MODEL_ID` and, if ambiguous,
+`--connector CONNECTION_ID`. `--install` approves missing-dependency downloads;
+`--apply` separately approves configuration and owned service changes. Neither
+flag launches an agent: only `--launch` does that, with billable inference.
+Changing an active agent/model/connector selection requires `--off` first.
+
+## Advanced: sourced activation and multiple agents
+
 Complete [connector setup](connector-setup.md) and [installation](installation.md)
 first. Run from the repository root inside the intended Sprite, in Bash or Zsh.
 The real Nebius key stays in the connector; the configurator uses
@@ -34,7 +58,10 @@ a short prompt can cause several billable requests.
 
 For configuration-only automation, use `.venv/bin/python scripts/configure`.
 It does not manage services unless given `--activate`, and cannot export variables
-to its parent shell. The sourced helper is the usual interactive entry point.
+to its parent shell. Use the sourced helper when you want to launch plain agent
+commands from your current shell, or configure multiple agents together. A
+multi-agent configuration must be restored with this helper, not a single-agent
+setup script.
 
 ## Managed configuration
 

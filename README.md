@@ -16,73 +16,58 @@ Grant access to your Sprite using the `nebius` label and the guide's inference-o
 path policy. **Keep the key in the connector—never copy it into the Sprite.**
 If your administrator has already done this, skip to step 2.
 
-### 2. Prepare your Sprite
+### 2. Set up your chosen agent
 
-Copy this repository into your Sprite and open its directory in **Bash or Zsh**.
-All remaining commands run there, not on your laptop. You need Python 3.12+ and
-at least one [installed agent](docs/installation.md#tested-agent-versions) on PATH.
+Copy this repository into your Sprite and open its directory. All remaining
+commands run **inside the Sprite**, not on your laptop. You need Python 3.12+
+with `venv`/`pip`; installing a missing agent also needs Node.js 22.19.0+ and npm.
+See [installation](docs/installation.md) if these runtimes are missing.
 
-```sh
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements-configure.txt -r proxy/requirements.txt
-```
-
-### 3. Choose your agent and model
-
-This example uses **Codex**. Set `NEBIUS_AGENTS` to `opencode`, `pi`, `claude`,
-or a comma-separated list to configure other installed agents.
+For **Pi**, run:
 
 ```sh
-NEBIUS_AGENTS=codex
-.venv/bin/python scripts/verify discover
-.venv/bin/python scripts/configure --agents "$NEBIUS_AGENTS" --dry-run
+./setup-nebius-pi
 ```
 
-The last command lists available model IDs without changing your configuration.
-If you have multiple Nebius connectors, add `--connector CONNECTION_ID` to that
-command and both `on` commands below; use the ID at the end of its discovered URL.
+Prefer another agent? Use `./setup-nebius-codex`, `./setup-nebius-opencode`, or
+`./setup-nebius-claude` instead—choose one, not all four.
 
-### 4. Preview the changes, then enable Nebius
+The script offers to install missing dependencies, lets you choose a connector
+and model, then shows which files it will change and asks before applying them.
+It keeps existing agent installations. Claude setup also starts and checks its
+local adapter. **Setup does not send inference or ask for your Nebius key.**
 
-Replace the model placeholder with an exact ID from step 3, then preview:
+### 3. Start coding
+
+Use the same command with `--launch`:
 
 ```sh
-NEBIUS_MODEL='MODEL_ID_FROM_LIST'
-source scripts/use-nebius on --agents "$NEBIUS_AGENTS" --model "$NEBIUS_MODEL" --dry-run
+./setup-nebius-pi --launch
 ```
 
-Review the files it will change. If the preview looks right, enable Nebius:
+It remembers your selection, checks the configuration, and launches Pi with the
+required placeholder environment. Use this launcher in new shells too; setup
+does not edit your shell profile. It prints the full command to use from another
+project directory. You can also pass `--launch` on the initial setup command.
 
-```sh
-source scripts/use-nebius on --agents "$NEBIUS_AGENTS" --model "$NEBIUS_MODEL" --approve-service-change
-```
-
-Selecting Claude also starts its local adapter; the approval flag permits that
-service change and is unnecessary for other agents. Setup reads model lists but
-does not send inference. In a new shell, repeat steps 3–4 with the same selection
-to activate it there too.
-
-### 5. Start coding
-
-Launch the agent you selected—for the example above:
-
-```sh
-codex
-```
-
-Use `opencode`, `pi` or `claude` instead if you selected one of those.
-**Agent use makes billable inference requests.** See the
-[tested agent/model combinations](docs/status.md) before choosing another model.
+**Agent use makes billable inference requests.** Model discovery does not prove
+compatibility: see the [tested agent/model combinations](docs/status.md).
 
 ### Switch back when you're done
 
 ```sh
-source scripts/use-nebius off --approve-service-change
+./setup-nebius-pi --off
 ```
 
-This restores the previous configuration and stops the Claude adapter if this
-toolkit started it. If you hit a configuration conflict, see
+Use your chosen agent's script. It previews and restores the previous
+configuration, stopping the Claude adapter if this toolkit started it. Installed
+dependencies and private backups are retained. Switch off before selecting a
+different agent, connector, or model. For conflicts or multi-agent setup, see
 [configuration and recovery](docs/agent-setup.md); do not overwrite the files.
+
+Want a preview? Add `--dry-run` (never installs or changes configuration; missing
+dependencies are listed first). Run a setup command with `--help` for explicit
+installation/application approvals suitable for unattended use.
 
 ## Security and compatibility
 
@@ -107,6 +92,7 @@ independent security sign-off.
 ## Checks and reference
 
 ```sh
+.venv/bin/python -m pip install -r requirements-configure.txt -r proxy/requirements.txt
 .venv/bin/python scripts/check
 .venv/bin/python scripts/verify --help
 ```
