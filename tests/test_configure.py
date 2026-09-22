@@ -5,35 +5,12 @@ import json
 from pathlib import Path
 import stat
 import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
 
 import nebius_configure as config
 import nebius_verify as verify
-
-BASE = "https://api.sprites.dev/v1/gateway/custom_api/test-connector"
-MODEL = "Qwen/test-model"
-
-
-class Response(io.BytesIO):
-    status = 200
-
-
-class FakeClient:
-    def __init__(self, gateways=(BASE,), models=(MODEL,)):
-        self.calls = []
-        self.gateways = gateways
-        self.models = models
-
-    def request(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        if url == verify.DISCOVERY_URL:
-            value = {"connections": [{"provider": "custom_api", "base_api_url": verify.NEBIUS_URL,
-                                       "gateway_base_url": item} for item in self.gateways]}
-        else:
-            value = {"data": [{"id": item} for item in self.models]}
-        return Response(json.dumps(value).encode())
+from support import BASE, MODEL, DiscoveryClient as FakeClient, HomeTestCase, ServiceRuntime
 
 
 def options(**values):
@@ -95,23 +72,12 @@ class DocumentTests(unittest.TestCase):
         self.assertIn('x=1 # keep', doc.render())
 
 
-class ConfigureTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.home = Path(self.tmp.name).resolve()
-
+class ConfigureTests(HomeTestCase):
     def run_config(self, **kwargs):
         client = kwargs.pop("client", FakeClient())
         overrides = kwargs.pop("overrides", {})
         return config.configure(options(**kwargs), home=self.home, environ={}, client=client,
                                 which=lambda _: "/bin/installed-agent", inside_sprite=True, **overrides)
-
-    def write(self, relative, content):
-        path = self.home / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-        return path
 
     def test_default_all_schema_and_no_spend(self):
         client = FakeClient()
@@ -170,12 +136,18 @@ class ConfigureTests(unittest.TestCase):
         self.assertFalse((self.home / '.codex').exists())
 
     def test_real_credentials_not_overwritten(self):
-        path = self.write('.claude/settings.json', '{"env":{"ANTHROPIC_AUTH_TOKEN":"user-owned-credential"}}')
-        before = path.read_bytes()
-        with self.assertRaisesRegex(config.ConfigureError, 'credentials'):
-            self.run_config()
-        self.assertEqual(path.read_bytes(), before)
-        self.assertFalse((self.home / '.codex').exists())
+        for relative, content in (
+            ('.claude/settings.json', '{"env":{"ANTHROPIC_AUTH_TOKEN":"user-owned-credential"}}'),
+            ('.pi/agent/models.json', '{"providers":{"nebius":{"apiKey":"user-owned"}}}'),
+        ):
+            path = self.write(relative, content)
+            with self.subTest(path=relative), self.assertRaisesRegex(config.ConfigureError, 'credentials'):
+                self.run_config()
+            self.assertEqual(path.read_text(), content)
+            self.assertFalse((self.home / '.codex').exists())
+            self.assertFalse((self.home / config.STATE / 'active.json').exists())
+            self.assertFalse((self.home / config.STATE / 'backups').exists())
+            path.unlink()
 
     def test_environment_credentials_and_overrides_are_rejected(self):
         for env in ({'NEBIUS_API_KEY':'user-owned-credential'}, {'ANTHROPIC_AUTH_TOKEN':'user-owned-credential'},
@@ -212,10 +184,13 @@ class ConfigureTests(unittest.TestCase):
                 self.run_config(agents='codex')
             link.unlink()
 
-    def test_private_backups_and_exact_round_trip(self):
+    def test_private_backups_idempotency_and_exact_round_trip(self):
         original = '# keep\nmodel = "old" # mine\n[other]\na = 12\n'
         path = self.write('.codex/config.toml', original)
         self.run_config(agents='codex')
+        state = (self.home / config.STATE / 'active.json').read_bytes()
+        self.assertEqual(self.run_config(agents='codex')['status'], 'unchanged')
+        self.assertEqual((self.home / config.STATE / 'active.json').read_bytes(), state)
         backup = self.home / config.STATE / 'backups/.codex_config.toml.original'
         self.assertEqual(backup.read_text(), original)
         self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o600)
@@ -224,13 +199,6 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result['status'], 'off')
         self.assertEqual(path.read_text(), original)
         self.assertTrue((self.home / config.STATE / 'off.sh').exists())
-
-    def test_idempotent_preserves_original_backup(self):
-        self.write('.codex/config.toml', 'model="old"\n')
-        self.run_config(agents='codex')
-        state = (self.home / config.STATE / 'active.json').read_bytes()
-        self.assertEqual(self.run_config(agents='codex')['status'], 'unchanged')
-        self.assertEqual((self.home / config.STATE / 'active.json').read_bytes(), state)
 
     def test_enable_disable_enable_and_dry_run(self):
         self.run_config(agents='codex')
@@ -261,8 +229,9 @@ class ConfigureTests(unittest.TestCase):
         before = codex.read_bytes()
         claude = self.home / '.claude/settings.json'
         claude.write_text(claude.read_text().replace('8083', '9000'))
-        with self.assertRaisesRegex(config.ConfigureError, 'conflict'):
+        with patch('proxy.service.stop_owned') as stop, self.assertRaisesRegex(config.ConfigureError, 'conflict'):
             self.run_config(off=True)
+        stop.assert_not_called()
         self.assertEqual(codex.read_bytes(), before)
         self.assertTrue((self.home / config.STATE / 'active.json').exists())
 
@@ -273,14 +242,6 @@ class ConfigureTests(unittest.TestCase):
             stop.assert_not_called()
             self.run_config(off=True)
         stop.assert_called_once_with(self.home, locked=True)
-
-    def test_off_conflict_does_not_stop_service(self):
-        self.run_config(agents='codex')
-        path = self.home / '.codex/config.toml'
-        path.write_text(path.read_text().replace(MODEL, 'user-model'))
-        with patch('proxy.service.stop_owned') as stop, self.assertRaises(config.ConfigureError):
-            self.run_config(off=True)
-        stop.assert_not_called()
 
     def test_failed_service_stop_keeps_configuration(self):
         from proxy.service import ServiceError
@@ -455,8 +416,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_activation_failed_health_removes_only_new_service_and_restores(self):
         from proxy import service
-        from test_service import Runtime
-        runtime = Runtime()
+        runtime = ServiceRuntime()
         start = service.start_owned
         stop = service.stop_owned
         with patch.object(service, 'port_available'), \
@@ -470,8 +430,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_uncertain_creation_retains_configuration_and_journal(self):
         from proxy import service
-        from test_service import Runtime
-        runtime = Runtime()
+        runtime = ServiceRuntime()
         def uncertain(args):
             if args[0] == 'create':
                 raise service.ServiceError('unknown result')

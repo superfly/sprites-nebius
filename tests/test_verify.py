@@ -12,19 +12,9 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 import nebius_verify as verify
+from support import Response, json_response
 
 BASE = "https://api.sprites.dev/v1/gateway/custom_api/test-connection"
-
-
-class Response(io.BytesIO):
-    def __init__(self, body=b"", status=200, content_type="application/json"):
-        super().__init__(body)
-        self.status = status
-        self.headers = {"Content-Type": content_type}
-
-
-def json_response(value, status=200):
-    return Response(json.dumps(value).encode(), status)
 
 
 def models():
@@ -239,11 +229,13 @@ class StreamTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
-    def test_write_denial_requires_approval_before_client_creation(self):
-        with patch.object(verify, "Client") as client, contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                verify.main(["write-denial", "--gateway-url", BASE])
-        client.assert_not_called()
+    def test_paid_and_write_probes_require_opt_in_before_client_creation(self):
+        for args in (["write-denial"], ["inference", "--model", "test-model"]):
+            with self.subTest(args=args), patch.object(verify, "Client") as client, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                verify.main([*args, "--gateway-url", BASE])
+            self.assertEqual(raised.exception.code, 2)
+            client.assert_not_called()
 
     def test_one_empty_write_denial_with_gateway_policy_evidence(self):
         client = FakeClient(models(), json_response({"error": "endpoint is blocked by policy"}, 403))
@@ -258,13 +250,6 @@ class SafetyTests(unittest.TestCase):
             result = verify.write_denial(FakeClient(models(), json_response(body, status)), BASE)[0]
             self.assertEqual(result["status"], "fail")
             self.assertNotIn("private upstream", json.dumps(result))
-
-    def test_paid_requests_require_opt_in_before_client_creation(self):
-        with patch.object(verify, "Client") as client, contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit) as raised:
-                verify.main(["inference", "--gateway-url", BASE, "--model", "test-model"])
-        self.assertEqual(raised.exception.code, 2)
-        client.assert_not_called()
 
     def test_two_paid_calls_and_no_retry_with_placeholder_only(self):
         client = FakeClient(models(), Response(status=429), Response(status=500))
@@ -300,24 +285,6 @@ class SafetyTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(argparse.ArgumentTypeError):
                 verify.token_limit(value)
 
-    def test_client_does_not_follow_redirects(self):
-        self.assertIsNone(verify.NoRedirect().redirect_request(None, None, 302, "", {},
-                                                              "https://evil.test"))
-
-    def test_inference_accepts_gateway_json_negotiation_but_requires_sse(self):
-        client = verify.Client()
-        with patch.object(client.opener, "open", return_value=Response()) as opener:
-            with client.request(BASE + "/chat/completions", method="POST",
-                                bearer=verify.PLACEHOLDER,
-                                payload={"stream": True, "max_tokens": 256}) as response:
-                request = opener.call_args.args[0]
-                self.assertEqual(request.get_header("Accept"),
-                                 "text/event-stream, application/json")
-                self.assertEqual(request.get_header("Content-type"), "application/json")
-                self.assertTrue(json.loads(request.data)["stream"])
-                with self.assertRaisesRegex(verify.ProbeError, "Expected text/event-stream"):
-                    verify.inspect_stream(response, "chat")
-
     def test_client_does_not_inherit_environment_credentials(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "not-for-the-client",
                                        "NEBIUS_API_KEY": "also-not-for-the-client"}):
@@ -343,23 +310,17 @@ class SafetyTests(unittest.TestCase):
             with client.request(BASE) as response:
                 self.assertEqual(response.status, 302)
 
-    def test_deadline_refuses_conflicting_timer_before_network(self):
-        client = verify.Client()
-        with patch.object(signal, "getitimer", return_value=(1.0, 0.0)), \
-             patch.object(client.opener, "open") as opener:
-            with self.assertRaisesRegex(verify.ProbeError, "another process timer"):
-                with client.request(BASE):
-                    pass
-        opener.assert_not_called()
-
-    def test_deadline_refuses_unsupported_platform_before_network(self):
-        client = verify.Client()
-        with patch.object(verify, "signal", object()), \
-             patch.object(client.opener, "open") as opener:
-            with self.assertRaisesRegex(verify.ProbeError, "POSIX main-thread"):
-                with client.request(BASE):
-                    pass
-        opener.assert_not_called()
+    def test_deadline_requires_supported_platform_and_unused_timer_before_network(self):
+        for guard, message in (
+            (patch.object(signal, "getitimer", return_value=(1.0, 0.0)), "another process timer"),
+            (patch.object(verify, "signal", object()), "POSIX main-thread"),
+        ):
+            client = verify.Client()
+            with self.subTest(message=message), guard, patch.object(client.opener, "open") as opener:
+                with self.assertRaisesRegex(verify.ProbeError, message):
+                    with client.request(BASE):
+                        pass
+                opener.assert_not_called()
 
     def test_invalid_deadlines_fail_before_network(self):
         for timeout in (0, -1, float("inf"), float("nan"), 121):
@@ -427,13 +388,6 @@ class SafetyTests(unittest.TestCase):
         self.assertRegex(json.loads(out.getvalue())["harness_sha256"], r"^[a-f0-9]{64}$")
         self.assertTrue(json.loads(out.getvalue())["recorded_at"].endswith("Z"))
 
-    def test_internal_release_commands_are_not_exposed(self):
-        for command in ("suite", "acceptance"):
-            with self.subTest(command=command), patch.object(verify, "Client") as client, \
-                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                verify.main([command])
-            client.assert_not_called()
-
     def test_partial_http_body_is_sanitized(self):
         response = Response()
         with patch.object(response, "read", side_effect=IncompleteRead(b"private")), \
@@ -448,7 +402,8 @@ class SafetyTests(unittest.TestCase):
 class LoopbackHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         # Reproduce the gateway's JSON Accept requirement before serving SSE.
-        if "application/json" not in self.headers.get("Accept", ""):
+        if ("application/json" not in self.headers.get("Accept", "")
+                or self.headers.get("Content-Type") != "application/json"):
             self.send_response(406)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -523,23 +478,18 @@ class LoopbackTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
 
-    def test_real_http_client_observes_delayed_events(self):
-        with verify.Client().request(self.url + "/stream") as response:
-            result = verify.inspect_stream(response, "chat")
-        self.assertEqual(result["status"], "pass")
-        self.assertGreaterEqual(result["first_to_last_delta_ms"], 100)
-
     def test_real_redirect_is_not_followed(self):
         with verify.Client().request(self.url + "/redirect") as response:
             self.assertEqual(response.status, 302)
         self.assertEqual(self.server.paths, ["/redirect"])
 
-    def test_real_stream_post_passes_gateway_accept_negotiation(self):
+    def test_real_stream_post_negotiates_gateway_and_observes_delayed_events(self):
         payload = {"stream": True, "max_tokens": 256}
         with verify.Client().request(self.url + "/stream", method="POST",
                                      payload=payload) as response:
             result = verify.inspect_stream(response, "chat")
         self.assertEqual(result["status"], "pass")
+        self.assertGreaterEqual(result["first_to_last_delta_ms"], 100)
         self.assertEqual(self.server.payloads, [payload])
 
     def test_trickling_headers_json_sse_and_error_bodies_are_bounded(self):

@@ -2,8 +2,6 @@ import json
 import contextlib
 import io
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -11,33 +9,12 @@ from unittest.mock import patch
 from nebius_configure import STATE, atomic_write
 from nebius_verify import PLACEHOLDER
 from proxy import service
+from support import HomeTestCase, ServiceRuntime as Runtime
 
 
-class Runtime:
-    def __init__(self):
-        self.rows = []
-        self.calls = []
-        self.stall_stop = False
-
-    def __call__(self, args):
-        self.calls.append(args)
-        if args[0] == "list":
-            return json.dumps(self.rows).encode()
-        if args[0] == "create":
-            self.rows.append({"name": args[1], "cmd": args[3], "args": args[5].split(","),
-                              "dir": args[7], "state": {"status": "running"}})
-        elif args[0] == "stop" and not self.stall_stop:
-            self.rows[0]["state"]["status"] = "stopped"
-        elif args[0] == "delete":
-            self.rows = [row for row in self.rows if row["name"] != args[1]]
-        return b""
-
-
-class ServiceTests(unittest.TestCase):
+class ServiceTests(HomeTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.home = Path(self.temp.name).resolve()
+        super().setUp()
         self.state = self.home / STATE
         config = {"OPENAI_BASE_URL": "https://api.sprites.dev/v1/gateway/custom_api/test",
                   "OPENAI_API_KEY": PLACEHOLDER, "ANTHROPIC_API_KEY": PLACEHOLDER,
@@ -45,9 +22,7 @@ class ServiceTests(unittest.TestCase):
         atomic_write(self.state / "proxy.json", json.dumps(config).encode())
         atomic_write(self.state / "active.json", b"{}")
         self.run = Runtime()
-        self.port_patch = patch.object(service, 'port_available')
-        self.port_patch.start()
-        self.addCleanup(self.port_patch.stop)
+        self.enterContext(patch.object(service, 'port_available'))
 
     def test_owned_service_lifecycle_no_public_port_or_inference(self):
         result = service.start_owned(self.home, run=self.run)

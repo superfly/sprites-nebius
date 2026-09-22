@@ -6,13 +6,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
 
 import nebius_configure as config
 import nebius_setup as setup
-from test_configure import BASE, MODEL, FakeClient
+from support import BASE, MODEL, DiscoveryClient as FakeClient, HomeTestCase
 
 
 def options(**values):
@@ -20,12 +19,9 @@ def options(**values):
                                      apply=False, dry_run=False, launch=False, off=False) | values)
 
 
-class SetupTests(unittest.TestCase):
+class SetupTests(HomeTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.home = Path(self.temp.name).resolve() / "agent home"
-        self.home.mkdir()
+        super().setUp()
         self.bin = self.home / "bin"
         self.bin.mkdir()
         for agent in config.AGENTS:
@@ -95,10 +91,15 @@ class SetupTests(unittest.TestCase):
         self.assertFalse((self.home / config.STATE).exists())
         self.assertFalse((self.home / ".pi").exists())
 
-    def test_noninteractive_requires_apply_approval(self):
-        with self.assertRaisesRegex(config.ConfigureError, "approval flag"):
-            self.run_setup(model=MODEL)
+    def test_noninteractive_requires_consent_before_config_or_service_changes(self):
+        with patch.object(config, "activate_service") as service:
+            for agent in ("pi", "claude"):
+                with self.subTest(agent=agent), self.assertRaisesRegex(config.ConfigureError, "approval flag"):
+                    self.run_setup(agent=agent, model=MODEL)
+            service.assert_not_called()
         self.assertFalse((self.home / config.STATE).exists())
+        self.assertFalse((self.home / ".pi").exists())
+        self.assertFalse((self.home / ".claude").exists())
 
     def test_conflicting_environment_checked_before_bootstrap(self):
         for variable in ("NEBIUS_API_KEY", config.ENV_KEY, "PI_CODING_AGENT_DIR"):
@@ -107,16 +108,6 @@ class SetupTests(unittest.TestCase):
                     self.run_setup(model=MODEL, apply=True)
         self.runtime.assert_not_called()
         self.assertEqual(self.client.calls, [])
-
-    def test_existing_credentials_not_overwritten(self):
-        target = self.home / ".pi/agent/models.json"
-        target.parent.mkdir(parents=True)
-        content = '{"providers":{"nebius":{"apiKey":"user-owned"}}}'
-        target.write_text(content)
-        with self.assertRaisesRegex(config.ConfigureError, "credentials"):
-            self.run_setup(model=MODEL, apply=True)
-        self.assertEqual(target.read_text(), content)
-        self.assertFalse((self.home / config.STATE).exists())
 
     def test_another_selection_not_silently_replaced(self):
         self.run_setup(model=MODEL, apply=True)
@@ -148,13 +139,6 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(env[config.ENV_KEY], setup.PLACEHOLDER)
         self.assertNotIn(config.ENV_KEY, os.environ)
         self.assertEqual(Path.cwd(), before)
-
-    def test_claude_service_requires_consent(self):
-        with patch.object(config, "activate_service") as service:
-            with self.assertRaisesRegex(config.ConfigureError, "approval flag"):
-                self.run_setup(agent="claude", model=MODEL)
-            service.assert_not_called()
-        self.assertFalse((self.home / ".claude").exists())
 
     def test_unsafe_provider_models_never_printed_or_selected(self):
         self.client.models = (MODEL, "\x1b[31mbad", "$(touch bad)", "x" * 201)
@@ -202,14 +186,11 @@ class SetupTests(unittest.TestCase):
         self.runtime.assert_not_called()
 
 
-class BootstrapTests(unittest.TestCase):
+class BootstrapTests(HomeTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name).resolve() / "checkout with spaces"
-        self.home = Path(self.temp.name).resolve() / "home"
+        super().setUp()
+        self.root = self.directory / "checkout with spaces"
         self.root.mkdir()
-        self.home.mkdir()
         (self.root / "proxy").mkdir()
         for name in ("requirements-configure.txt", "proxy/requirements.txt"):
             (self.root / name).write_bytes((setup.ROOT / name).read_bytes())
