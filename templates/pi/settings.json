@@ -1,0 +1,5 @@
+{
+  "defaultProvider": "nebius",
+  "defaultModel": "MODEL_ID",
+  "retry": {"enabled": false}
+}

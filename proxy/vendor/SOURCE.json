@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/fuergaosi233/claude-code-proxy",
+  "commit": "7ea4177a54a5ff7969a5f8ec76d9f80f2e0409e5",
+  "license": "MIT",
+  "files": {
+    "conversion.py": ["src/conversion/request_converter.py", "src/conversion/response_converter.py"]
+  },
+  "adaptation": "Minimal conversion subset rewritten around validated dictionaries. Preserves mixed user/tool-result content, forced tool choice and parallel-tool restrictions. Supports text-only mid-conversation system messages and turn-scoped clearing with linear history traversal. Rejects unsupported blocks, dynamic tool changes, malformed tool JSON, duplicate tool IDs, caller tool-constraint violations and inconsistent completion semantics in both response modes. Omits upstream environment loading, payload logging, model fallbacks, transport and HTTP routes. Streaming framing is implemented separately in proxy/server.py."
+}

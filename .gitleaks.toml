@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Local generated virtual environment and Git object database only"
+paths = ['''(^|/)\.venv/''', '''(^|/)\.git/''']

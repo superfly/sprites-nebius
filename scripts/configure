@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Configure installed agents; source the reported env.sh after success."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from nebius_configure import main
+
+raise SystemExit(main())

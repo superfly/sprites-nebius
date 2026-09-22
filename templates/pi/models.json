@@ -1,0 +1,10 @@
+{
+  "providers": {
+    "nebius": {
+      "baseUrl": "GATEWAY_BASE_URL",
+      "api": "openai-completions",
+      "apiKey": "$SPRITES_NEBIUS_PLACEHOLDER",
+      "models": [{"id": "MODEL_ID"}]
+    }
+  }
+}
