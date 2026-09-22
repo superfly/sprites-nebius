@@ -10,7 +10,7 @@ Fly.io bills you separately for Sprite resources.
 
 ### 1. Connect your Nebius account
 
-On your laptop, follow the [connector setup guide](docs/connector-setup.md) to
+Follow the [connector setup guide](docs/connector-setup.md) to
 add your Nebius key in **Fly dashboard → Sprites → Connectors → Custom API**.
 Grant access to your Sprite using the `nebius` label and the guide's inference-only
 path policy. **Keep the key in the connector—never copy it into the Sprite.**
