@@ -4,19 +4,16 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 
 import nebius_configure as config
+from support import HomeTestCase
 
 
-class ActivationTests(unittest.TestCase):
+class ActivationTests(HomeTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / 'reviewed checkout'
-        self.home = Path(self.temp.name) / 'agent home'
-        self.home.mkdir()
+        super().setUp()
+        self.root = self.directory / 'reviewed checkout'
         (self.root / 'scripts').mkdir(parents=True)
         (self.root / '.venv/bin').mkdir(parents=True)
         self.helper = self.root / 'scripts/use-nebius'

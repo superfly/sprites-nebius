@@ -192,6 +192,25 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
     async def collect(self, stream):
         return events([part async for part in stream])
 
+    def translated(self, source, *, settings=None, **options):
+        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
+        payload = request_to_openai(request_body(stream=True, **options), "provider/middle", 16384)
+        return server.translated_stream(client, settings or self.settings, payload, "claude-sonnet", "id")
+
+    async def completion_in_both_modes(self, message, reason="tool_calls", **options):
+        """Deliver the same provider completion as JSON and SSE, checking cleanup."""
+        usage = {"prompt_tokens": 1, "completion_tokens": 1}
+        body = {"choices": [{"message": message, "finish_reason": reason}], "usage": usage}
+        client = self.app_client(lambda req: httpx.Response(200, json=body))
+        response = await client.post("/v1/messages", headers={"x-api-key": KEY}, json=request_body(**options))
+        delta = dict(message)
+        if isinstance(delta.get("tool_calls"), list):
+            delta["tool_calls"] = [{**call, "index": index} for index, call in enumerate(delta["tool_calls"])]
+        source = FakeStream([frame(choice(delta, reason)), frame({"usage": usage}), frame("[DONE]")])
+        parts = await self.collect(self.translated(source, **options))
+        self.assertTrue(source.closed)
+        return response, parts
+
     async def test_health_count_and_no_diagnostic_inference(self):
         sent = []
         def handler(req):
@@ -263,8 +282,7 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
     async def test_text_is_incremental_and_usage_tail_kept(self):
         source = FakeStream([frame(choice({"content": "One"})), frame(choice({"content": "Two"})),
                              frame(choice(finish="stop")), frame({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4}}), frame("[DONE]")])
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        parts = await self.collect(server.translated_stream(client, self.settings, request_body(stream=True), "claude-sonnet", "id"))
+        parts = await self.collect(self.translated(source))
         deltas = [p["delta"]["text"] for p in parts if p["type"] == "content_block_delta"]
         self.assertEqual(deltas, ["One", "Two"])
         self.assertEqual(parts[-2]["usage"], {"input_tokens": 10, "output_tokens": 4})
@@ -318,25 +336,16 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
             ({"tool_calls": [tool, tool]}, "tool_calls"),
             ({"tool_calls": [{**tool, "id": ""}]}, "tool_calls"),
             ({"tool_calls": [{**tool, "function": {"name": "", "arguments": "{}"}}]}, "tool_calls"),
+            ({"tool_calls": [{**tool, "function": {"name": "Read", "arguments": "{"}}]}, "tool_calls"),
             ({"tool_calls": [{**tool, "function": {"name": "Read", "arguments": '{"x": NaN}'}}]}, "tool_calls"),
             ({"tool_calls": {}}, "stop"),
         ]
         for message, reason in malformed:
             with self.subTest(message=message, reason=reason):
-                body = {"choices": [{"message": message, "finish_reason": reason}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
-                client = self.app_client(lambda req: httpx.Response(200, json=body))
-                response = await client.post("/v1/messages", headers={"x-api-key": KEY}, json=request_body())
+                response, parts = await self.completion_in_both_modes(message, reason, tools=TOOLS)
                 self.assertEqual(response.status_code, 502)
-                delta = dict(message)
-                if isinstance(delta.get("tool_calls"), list):
-                    delta["tool_calls"] = [{**call, "index": index} for index, call in enumerate(delta["tool_calls"])]
-                source = FakeStream([frame(choice(delta, reason)), frame({"usage": body["usage"]}), frame("[DONE]")])
-                upstream = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-                parts = await self.collect(server.translated_stream(upstream, self.settings, {"stream": True}, "m", "id"))
                 self.assertEqual(parts[-1]["type"], "error")
                 self.assertFalse(any(p["type"] == "content_block_start" for p in parts))
-                self.assertTrue(source.closed)
 
     async def test_single_choice_required_in_both_modes(self):
         for choices in ({}, [choice()["choices"][0]] * 2):
@@ -344,23 +353,14 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
             response = await client.post("/v1/messages", headers={"x-api-key": KEY}, json=request_body())
             self.assertEqual(response.status_code, 502)
             source = FakeStream([frame({"choices": choices}), frame("[DONE]")])
-            upstream = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-            parts = await self.collect(server.translated_stream(upstream, self.settings, {"stream": True}, "m", "id"))
+            parts = await self.collect(self.translated(source))
             self.assertEqual(parts[-1]["type"], "error")
 
     async def test_repeated_tool_names_with_distinct_ids_remain_valid(self):
         calls = [{"id": name, "function": {"name": "Read", "arguments": "{}"}} for name in ("one", "two")]
-        body = {"choices": [{"message": {"tool_calls": calls}, "finish_reason": "tool_calls"}],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
-        client = self.app_client(lambda req: httpx.Response(200, json=body))
-        response = await client.post("/v1/messages", headers={"x-api-key": KEY}, json=request_body(tools=TOOLS))
+        response, parts = await self.completion_in_both_modes({"tool_calls": calls}, tools=TOOLS)
         self.assertEqual(response.status_code, 200)
         self.assertEqual([block["id"] for block in response.json()["content"]], ["one", "two"])
-        source = FakeStream([frame(choice({"tool_calls": [{**call, "index": index} for index, call in enumerate(calls)]}, "tool_calls")),
-                             frame({"usage": body["usage"]}), frame("[DONE]")])
-        upstream = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        payload = request_to_openai(request_body(stream=True, tools=TOOLS), "m", 16384)
-        parts = await self.collect(server.translated_stream(upstream, self.settings, payload, "m", "id"))
         self.assertEqual(parts[-1]["type"], "message_stop")
         self.assertEqual([p["content_block"]["id"] for p in parts if p["type"] == "content_block_start"], ["one", "two"])
 
@@ -369,9 +369,7 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
             frame(choice({"tool_calls": [{"index": 0, "id": "tool-1", "function": {"name": "Read", "arguments": '{"pa'}}]})),
             frame(choice({"tool_calls": [{"index": 0, "function": {"arguments": 'th":"x"}'}}]})),
             frame(choice(finish="tool_calls")), frame({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 8}}), frame("[DONE]")])
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        payload = request_to_openai(request_body(stream=True, tools=TOOLS), "m", 16384)
-        parts = await self.collect(server.translated_stream(client, self.settings, payload, "claude-sonnet", "id"))
+        parts = await self.collect(self.translated(source, tools=TOOLS))
         block = next(p for p in parts if p["type"] == "content_block_start")
         self.assertEqual(block["content_block"]["id"], "tool-1")
         delta = next(p for p in parts if p["type"] == "content_block_delta")
@@ -390,28 +388,17 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         ]
         for options, calls in scenarios:
             with self.subTest(options=options):
-                usage = {"prompt_tokens": 1, "completion_tokens": 1}
-                body = {"choices": [{"message": {"tool_calls": calls}, "finish_reason": "tool_calls"}], "usage": usage}
-                client = self.app_client(lambda req: httpx.Response(200, json=body))
-                response = await client.post("/v1/messages", headers={"x-api-key": KEY}, json=request_body(**options))
+                response, parts = await self.completion_in_both_modes({"tool_calls": calls}, **options)
                 self.assertEqual(response.status_code, 502)
-                source = FakeStream([frame(choice({"tool_calls": [{**c, "index": i} for i, c in enumerate(calls)]}, "tool_calls")),
-                                     frame({"usage": usage}), frame("[DONE]")])
-                upstream = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-                payload = request_to_openai(request_body(stream=True, **options), "m", 16384)
-                parts = await self.collect(server.translated_stream(upstream, self.settings, payload, "m", "id"))
                 self.assertEqual(parts[-1]["type"], "error")
                 self.assertFalse(any(p["type"] == "content_block_start" for p in parts))
-                self.assertTrue(source.closed)
 
     async def test_finish_marker_cannot_be_overridden_or_followed_by_deltas(self):
         tool = {"index": 0, "id": "one", "function": {"name": "Read", "arguments": "{}"}}
         for late in (choice(finish="tool_calls"), choice({"content": "late"})):
             source = FakeStream([frame(choice({"tool_calls": [tool]}, "length")), frame(late),
                                  frame({"usage": {"prompt_tokens": 1, "completion_tokens": 1}}), frame("[DONE]")])
-            upstream = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-            payload = request_to_openai(request_body(stream=True, tools=TOOLS), "m", 16384)
-            parts = await self.collect(server.translated_stream(upstream, self.settings, payload, "m", "id"))
+            parts = await self.collect(self.translated(source, tools=TOOLS))
             self.assertEqual(parts[-1]["type"], "error")
             self.assertFalse(any(p["type"] in ("content_block_start", "message_stop") for p in parts))
             self.assertTrue(source.closed)
@@ -420,9 +407,8 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         # A single buffered provider chunk must not hide the consumer timeout
         # behind a CancelledError from a suspended producer's cancel scope.
         source = FakeStream([b':\n\n' * 500000])
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
         settings = server.Settings.load({**SETTINGS, "REQUEST_TIMEOUT": "0.001"})
-        parts = await self.collect(server.translated_stream(client, settings, {"stream": True}, "m", "id"))
+        parts = await self.collect(self.translated(source, settings=settings))
         self.assertEqual(parts[-1]["type"], "error")
         self.assertFalse(any(p["type"] == "message_stop" for p in parts))
         self.assertTrue(source.closed)
@@ -457,18 +443,9 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status_code, 502)
                 self.assertTrue(source.closed)
 
-    async def test_invalid_tool_json_never_emits_tool(self):
-        source = FakeStream([frame(choice({"tool_calls": [{"index": 0, "id": "tool-1", "function": {"name": "Read", "arguments": "{"}}]}, "tool_calls")),
-                             frame({"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}), frame("[DONE]")])
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        parts = await self.collect(server.translated_stream(client, self.settings, request_body(stream=True), "claude-sonnet", "id"))
-        self.assertFalse(any(p["type"] == "content_block_start" for p in parts))
-        self.assertEqual(parts[-1]["type"], "error")
-
     async def test_truncated_stream_fails_not_success(self):
         source = FakeStream([frame(choice({"content": "part"}))])
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        parts = await self.collect(server.translated_stream(client, self.settings, request_body(stream=True), "claude-sonnet", "id"))
+        parts = await self.collect(self.translated(source))
         self.assertEqual(parts[-1]["type"], "error")
         self.assertFalse(any(p["type"] == "message_stop" for p in parts))
 
@@ -483,8 +460,7 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         for chunks in ([{**choice(finish="stop"), "usage": usage, "error": error}],
                        [{**choice(finish="stop"), "usage": usage}, {"error": error}]):
             source = FakeStream([frame(chunk) for chunk in chunks] + [frame("[DONE]")])
-            upstream = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-            parts = await self.collect(server.translated_stream(upstream, self.settings, {"stream": True}, "m", "id"))
+            parts = await self.collect(self.translated(source))
             self.assertEqual(parts[-1]["type"], "error")
             self.assertFalse(any(p["type"] == "message_stop" for p in parts))
             self.assertNotIn(error["message"], json.dumps(parts))
@@ -492,38 +468,20 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_closing_stream_closes_upstream(self):
         source = FakeStream([frame(choice({"content": "part"}))], stall=True)
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        generator = server.translated_stream(client, self.settings, request_body(stream=True), "claude-sonnet", "id")
+        generator = self.translated(source)
         await generator.__anext__()
         await generator.aclose()
         self.assertTrue(source.closed)
 
     async def test_cancel_stalled_stream_before_first_chunk(self):
         source = FakeStream([], stall=True)
-        client = self.client(lambda req: httpx.Response(200, stream=source, headers={"Content-Type": "text/event-stream"}))
-        generator = server.translated_stream(client, self.settings, request_body(stream=True), "claude-sonnet", "id")
+        generator = self.translated(source)
         task = asyncio.create_task(generator.__anext__())
         await asyncio.wait_for(source.waiting.wait(), 1)
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertTrue(source.closed)
-
-    async def test_nonstream_disconnect_cancels_work(self):
-        started, cancelled = asyncio.Event(), asyncio.Event()
-        async def work():
-            try:
-                started.set()
-                await asyncio.Event().wait()
-            finally:
-                cancelled.set()
-        class Request:
-            async def receive(self):
-                await started.wait()
-                return {"type": "http.disconnect"}
-        with self.assertRaises(ConversionError):
-            await server.until_disconnect(work(), Request())
-        self.assertTrue(cancelled.is_set())
 
     async def test_asgi_disconnect_cancels_stalled_upstream(self):
         for streaming in (False, True):
