@@ -1,2 +1,2 @@
 # Comment-preserving TOML edits; configure never installs dependencies itself.
-tomlkit==0.13.3
+tomlkit==0.15.1
